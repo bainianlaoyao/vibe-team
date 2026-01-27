@@ -62,6 +62,34 @@ Next.js + Prisma + Tailwind + TypeScript
 
 系统将需求自动拆解为**并行**的 Ticket（任务卡片）
 
+**重要: Task 的内部结构**
+
+一个 Task 不是单一 Agent 的原子任务,而是**多个 Agent 协作的执行树 (Agent DAG)**:
+
+- **并行层 (Parallel Layers)**: 同一层级的 Agent 可同时工作
+- **依赖链 (Dependency Chains)**: 后续 Agent 等待前置 Agent 的产物
+- **数据流 (Data Flow)**: Agent 间自动传递生成的文件/代码
+
+**示例: 创建用户认证功能**
+```
+Task: 实现用户认证系统
+│
+├─ [Round 1] 并行启动
+│   ├─ Agent A (Backend)  → 设计 User schema + Auth API
+│   └─ Agent B (Design)   → 设计登录/注册 UI 原型
+│
+├─ [Round 2] 依赖满足后启动
+│   └─ Agent C (Frontend) → [等待 A, B] → 实现页面 + 集成 API
+│
+└─ [Round 3] 验收
+    └─ Agent D (Test) → [等待 C] → 编写集成测试
+```
+
+**关键优势:**
+- ✅ **最大化并行**: 设计和后端可同时启动
+- ✅ **自动调度**: Agent C 自动等待 A、B 完成后接收产物
+- ✅ **清晰依赖**: 每个层级明确知道何时可以开始
+
 #### 可视化看板 (Dashboard)
 
 抛弃单一聊天窗口,采用 Dashboard 视图:
