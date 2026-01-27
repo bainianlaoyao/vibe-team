@@ -1,4 +1,4 @@
-# BeeBeeBrain
+# BeeBeeBrain - Surface Demo
 
 > 从 "AI 结对编程" 转型为 **"AI 团队管理"**
 >
@@ -13,11 +13,11 @@
 
 ## 🎯 核心理念
 
-你不是在做一个更好的代码编辑器,你是在做一个 **"软件外包公司的自动化管理后台"**, 用户是老板, AI 是不知疲倦的员工。
+你不是在做一个更好的代码编辑器，你是在做一个 **"软件外包公司的自动化管理后台"**，用户是老板，AI 是不知疲倦的员工。
 
 ### 解决的问题
 
-当前 AI 编程工具（Claude Code/Cursor）的痛点:
+当前 AI 编程工具（Claude Code/Cursor）的痛点：
 
 - ❌ **串行效率低** - 等待一个 Agent 一个字蹦出来
 - ❌ **上下文污染** - 单一聊天窗口承载过多信息
@@ -31,24 +31,220 @@
 
 ---
 
-## ✨ 核心功能
+## 🎨 Surface Demo - 四屏演示
 
-### 🎨 启动阶段 (The Blueprint)
+这是一个高保真的前端演示，展示"AI 团队管理"的完整体验：
 
-- 聊天式需求访谈 → 实时生成架构图/思维导图
-- 强制使用 **黄金模板** (Next.js + Prisma + Tailwind)
-- 跳过繁琐配置,确保 Agent 遵循最佳实践
+### Screen 1: The Genesis (启动页)
+- ✨ 极简输入框，类似 Google Search
+- 🌐 Architect Core 球体动画（AI 思考过程）
+- 📋 自动生成项目宣言卡片
+- 🚀 "Authorize Team & Start" 按钮
 
-### 🚀 执行阶段 (The Hustle)
+### Screen 2: Mission Control (任务指挥中心)
+**核心主页 - 展示并行开发的爽快感**
 
-- **任务分裂:** 自动拆解为可并行的 Ticket
-- **可视化看板:** 多个 Agent 同时工作,实时进度条
-- **依赖管理:** 自动调度,依赖满足时任务自动开始
+- **左侧 - Tactical Radar (40%)**
+  - 👥 Agent Squad 视图（实时状态 🟢🔵🟡🔴）
+  - 🕸️ Dependency Graph 微缩图
 
-### 👁️ 验收与干预 (Review & Nudge)
+- **右侧 - Context Stage (60%)**
+  - 📺 Live Preview - 从 404 到 Full UI
+  - 💻 Terminal - 实时日志流
+  - 📝 Code Diff - 代码变更预览
 
-- **实时预览:** 右侧预览窗口自动刷新
-- **上帝之手:** 随时打断 Agent,广播指令
+- **顶部**: 项目名称 + 进度条 + Play/Pause/Reset
+- **底部**: Broadcast Bar - 全局指令输入
+
+### Screen 3: The Shoulder Tap (干预模式)
+**展示管理者的"指挥权"**
+
+- 🖱️ 点击任意 UI 元素触发干预
+- 🎯 Directive Modal - 自然语言指令输入
+- 🤖 Agent 实时响应并应用修改
+- 📋 Directive Queue - 指令历史记录
+
+### Screen 4: The Conflict (冲突解决)
+**展示系统处理真实开发问题**
+
+- 🚨 8 秒自动触发 Schema 冲突
+- 🛡️ War Room - 三栏布局（Agent A vs AI Suggestion vs Agent B）
+- ✅ 一键应用 AI 修复方案
+
+---
+
+## 🚀 快速开始
+
+### 环境要求
+
+- Node.js >= 20
+- npm >= 9
+
+### 安装与运行
+
+```bash
+# 克隆项目
+git clone https://github.com/your-repo/beebeebrain.git
+cd beebeebrain
+
+# 安装依赖
+npm install
+
+# 启动开发服务器
+npm run dev
+
+# 访问 Demo
+# http://localhost:5173
+```
+
+### 构建生产版本
+
+```bash
+npm run build
+```
+
+---
+
+## 🎨 设计系统
+
+### 色板 (Palette)
+- `Deep Space` (#0F1117) - 深空灰背景，沉浸感
+- `Glass Panel` (#1E232F) - 半透明磨砂玻璃，现代感
+- `Electric Indigo` (#6366F1) - 主行动按钮
+- `Neon Green` (#10B981) - 运行中/完成
+- `Cyber Yellow` (#F59E0B) - 阻塞/等待
+- `Signal Red` (#EF4444) - 错误/冲突
+- `Holographic Blue` (#3B82F6) - 思考中/规划中
+
+### 字体 (Typography)
+- *Inter* - 标题和正文（干净、专业）
+- *JetBrains Mono* - 代码、日志、终端
+
+### 动效 (Motion)
+- `pop-in` - 文件和列表项像爆米花一样弹出
+- `pulse-glow` - Agent 头像呼吸灯效果
+- `spin-slow` - 缓慢旋转动画
+- `fade` - 模态框淡入淡出
+
+---
+
+## 🎮 Demo 演示流程
+
+### 推荐演示顺序（5-10 分钟）
+
+1. **Screen 1 - The Genesis** (1 分钟)
+   - 输入："做一个面向独立开发者的 SaaS 收入看板"
+   - 按 Enter，观看 Architect Core 动画
+   - 展示自动生成的项目宣言
+   - 点击 "Authorize Team & Start"
+
+2. **Screen 2 - Mission Control** (2-3 分钟)
+   - 观看 3 个 Agent 并行工作
+   - 切换到 Terminal 标签查看日志
+   - 注意依赖关系：Frontend 等待 Backend 完成 Schema
+   - Watch Live Preview 从 Skeleton 变成 Full UI
+
+3. **Screen 3 - The Shoulder Tap** (2-3 分钟)
+   - 等待 UI 渲染完成
+   - 点击任意 UI 元素（如 "Revenue Card"）
+   - 输入指令："把这个卡片改成渐变背景"
+   - 观看 Agent 立即响应并应用修改
+
+4. **Screen 4 - The Conflict** (2-3 分钟)
+   - 启动 Demo
+   - 等待 8 秒左右触发冲突
+   - 展示 War Room 模态框
+   - 点击 "Approve AI Fix"
+   - 观看系统自动修复并继续工作
+
+### 演示要点（针对 PM/老板）
+
+- **Screen 1 卖的是"简单"**：一句话生成完整项目结构
+- **Screen 2 卖的是"爽"**：并行开发，进度可视化
+- **Screen 3 卖的是"权"**：随时干预，不用自己写代码
+- **Screen 4 卖的是"稳"**：自动处理冲突，保证系统稳定
+
+---
+
+## 📁 项目结构
+
+```
+src/
+├── components/              # 可复用组件
+│   ├── AgentCard.vue       # Agent 卡片
+│   ├── LivePreview.vue     # 实时预览（基础版）
+│   ├── InteractivePreview.vue # 可交互预览
+│   ├── DirectiveModal.vue  # 指令浮窗
+│   └── WarRoomModal.vue    # 冲突解决模态框
+├── views/                   # 页面视图
+│   ├── TheGenesis.vue      # Screen 1
+│   ├── MissionControl.vue  # Screen 2
+│   ├── TheShoulderTap.vue  # Screen 3
+│   └── TheConflict.vue     # Screen 4
+├── composables/             # Vue 组合式函数
+│   └── useDemoEngine.ts    # Demo 播放引擎
+├── data/                    # 数据文件
+│   └── demo-script.ts      # Demo 剧本（JSON 事件流）
+├── types/                   # TypeScript 类型
+│   └── demo.ts             # 类型定义
+├── App.vue                  # 根组件（含屏幕切换器）
+├── main.ts                  # 入口文件
+└── style.css                # 全局样式
+```
+
+---
+
+## 📝 自定义 Demo 剧本
+
+编辑 `src/data/demo-script.ts` 来创建自己的演示场景：
+
+```typescript
+export const demoScript: DemoEvent[] = [
+  {
+    time_ms: 0,
+    event: 'init_dashboard',
+    project_name: 'Your Project Name'
+  },
+  {
+    time_ms: 1000,
+    event: 'agent_start',
+    agent_id: 'backend_01',
+    role: 'Schema Architect',
+    status: 'coding',
+    log: 'Initializing Prisma Schema...'
+  },
+  {
+    time_ms: 3500,
+    event: 'file_created',
+    path: '/prisma/schema.prisma',
+    content_preview: 'model User { id String ... }',
+    agent_id: 'backend_01'
+  },
+  {
+    time_ms: 3800,
+    event: 'agent_status_change',
+    agent_id: 'backend_01',
+    status: 'done',
+    log: 'Schema complete ✓'
+  },
+  {
+    time_ms: 6000,
+    event: 'preview_update',
+    view_state: 'skeleton_screen',
+    description: 'Navigation bar appearing...'
+  },
+  // ... 更多事件
+]
+```
+
+### 支持的事件类型
+
+- `init_dashboard` - 初始化项目
+- `agent_start` - Agent 开始工作
+- `agent_status_change` - Agent 状态变更
+- `file_created` - 文件创建
+- `preview_update` - 预览更新
+- `demo_complete` - Demo 完成
 
 ---
 
@@ -64,16 +260,15 @@
 
 ### 技术栈
 
-**前端:**
+**前端 (当前 Demo):**
 ```
 Vue 3 + TypeScript
 ├── Vite (构建)
-├── TailwindCSS + shadcn-vue (UI)
-├── Pinia (状态管理)
-└── Monaco Editor (代码预览)
+├── TailwindCSS (UI)
+└── Composition API (状态管理)
 ```
 
-**后端:**
+**计划中的后端:**
 ```
 Node.js + TypeScript
 ├── Express / Fastify
@@ -84,101 +279,69 @@ Node.js + TypeScript
 
 ---
 
-## 📖 文档
+## 🔧 技术栈
 
-- [产品概述](claude.md) - **从这里开始!**
-- [系统架构](docs/architecture.md) - 详细的架构设计
-- [API 文档](docs/api.md) - REST 和 WebSocket API
-- [贡献指南](docs/contribution.md) - 如何参与开发
-
----
-
-## 🚀 快速开始
-
-### 环境要求
-
-- Node.js >= 20
-- pnpm >= 8
-- Git >= 2.30
-
-### 安装
-
-```bash
-# 克隆项目
-git clone https://github.com/your-repo/beebeebrain.git
-cd beebeebrain
-
-# 安装依赖
-pnpm install
-
-# 启动开发服务器
-pnpm dev
-```
-
-### MVP 演示
-
-当前版本使用 Mock 剧本引擎演示概念:
-
-```bash
-# 启动前端 (Vue)
-cd frontend && pnpm dev
-
-# 启动后端 (Mock 引擎)
-cd mock-engine && pnpm dev
-```
-
-访问 `http://localhost:5173` 查看演示。
+- **Vue 3** - 渐进式 JavaScript 框架（Composition API）
+- **TypeScript** - 类型安全
+- **Vite** - 下一代前端构建工具
+- **Tailwind CSS** - 实用优先的 CSS 框架
 
 ---
 
-## 🎬 演示截图
+## 🎯 屏幕切换
 
-### 可视化看板
-
-```
-┌─────────────────────────────────────────────────────┐
-│  🤖 Agent 状态                                        │
-├─────────────────────────────────────────────────────┤
-│  🔵 前端 Agent A  [████████░░] 80%                   │
-│  🟢 后端 Agent B  [██████████] 100%                  │
-│  🔵 设计 Agent C  [████░░░░░░] 40%                   │
-├─────────────────────────────────────────────────────┤
-│  📋 任务看板                                          │
-├─────────────────────────────────────────────────────┤
-│  Gray (待办)  │  Blue (进行中)  │  Green (完成)      │
-│  ────────────┼─────────────────┼───────────────    │
-│  Task D      │  Task A         │  Task B            │
-│  Task E      │  Task C         │                     │
-└─────────────────────────────────────────────────────┘
-```
+Demo 右上角有屏幕切换器，可以：
+1. 点击右上角的按钮切换
+2. 在浏览器控制台使用：`switchScreen('shoulder-tap')`
 
 ---
 
 ## 🗺️ 开发路线图
 
-### Phase 1: 基础搭建 ✅
-- [x] 初始化前后端项目
-- [x] 搭建基础 UI 框架
-- [ ] 实现 Git Worktree 管理器
-- [ ] 编写 Mock 剧本引擎
+### Phase 1: Surface Demo ✅
+- [x] 四个完整屏幕实现
+- [x] 设计系统和动画
+- [x] Demo 事件引擎
+- [x] 完整文档
 
-### Phase 2: 核心功能 (进行中)
-- [ ] 实现任务看板视图
-- [ ] 实现日志流组件
-- [ ] 实现文件树动画
-- [ ] 集成 Monaco Editor
+### Phase 2: 原型开发
+- [ ] 真实 Git Worktree 集成
+- [ ] 基础 Agent 框架
+- [ ] 简单的 LLM 接入
+- [ ] 实时 WebSocket 通信
 
-### Phase 3: 真实引擎
-- [ ] 替换 Mock 引擎为真实 Agent
-- [ ] 实现依赖解析
-- [ ] 实现冲突解决
-- [ ] 接入 LLM API
+### Phase 3: 核心功能
+- [ ] 任务自动分裂系统
+- [ ] 依赖关系解析
+- [ ] 冲突自动检测与解决
+- [ ] 黄金模板系统
 
-### Phase 4: 优化与打磨
+### Phase 4: 产品化
 - [ ] 性能优化
-- [ ] UI/UX 优化
-- [ ] 文档完善
-- [ ] 演示视频制作
+- [ ] 用户认证和权限
+- [ ] 多项目支持
+- [ ] 部署和监控
+
+---
+
+## 🚀 下一步优化方向
+
+如果需要继续完善，可以考虑：
+
+1. **更多交互**
+   - 拖拽 Agent 重新排序
+   - 点击 Artifact 查看代码
+   - 实时代码编辑器集成
+
+2. **更真实的模拟**
+   - 网络延迟模拟
+   - Agent 失败重试
+   - 分支策略展示
+
+3. **更多场景**
+   - Code Review 流程
+   - 部署流程
+   - 性能优化
 
 ---
 
@@ -198,11 +361,11 @@ cd mock-engine && pnpm dev
 
 ## 📊 项目状态
 
-**当前版本:** 0.1.0 (MVP)
+**当前版本:** 0.1.0 (Surface Demo MVP)
 
-**开发状态:** 🚧 概念验证阶段
+**开发状态:** ✅ Surface Demo 完成
 
-**下一步:** 实现核心调度器和 Git Worktree 管理
+**下一步:** 实现真实 Git Worktree 管理和基础 Agent 框架
 
 ---
 
@@ -212,10 +375,9 @@ cd mock-engine && pnpm dev
 
 ---
 
-## 💬 联系我们
+## 💬 联系方式
 
 - GitHub: [your-repo](https://github.com/your-repo/beebeebrain)
-- Discord: [链接]
 - Email: support@beebeebrain.dev
 
 ---
