@@ -89,6 +89,21 @@ uv run alembic upgrade head
 - `GET/POST/GET{id}/PATCH{id}/DELETE{id}`: `/tasks`
 - `GET /inbox`（支持 `project_id/item_type/status` 过滤）
 - `POST /inbox/{item_id}/close`（支持 `user_input`，`await_user_input` 类型必填）
+- `POST /events`（结构化事件写入：`task.status.changed` / `run.log` / `alert.raised`）
+- `GET /events/stream`（SSE，支持 `Last-Event-ID` 断线重连与 `replay_last` 回放）
+
+## 事件流压测脚本
+
+```bash
+cd backend
+uv run python scripts/events_stream_stress.py --project-id 1 --total-events 5000
+```
+
+常用参数：
+
+- `--producer-concurrency`：并发写入事件请求数
+- `--reconnect-every`：每消费 N 条主动断线重连一次（0 表示关闭）
+- `--timeout-seconds`：消费等待超时
 
 ## 检查与测试
 

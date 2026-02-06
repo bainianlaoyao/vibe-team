@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from sqlalchemy import update
@@ -45,9 +46,14 @@ class DocumentRepository:
         if active_filters.is_mandatory is not None:
             statement = statement.where(Document.is_mandatory == active_filters.is_mandatory)
         if active_filters.title_query:
-            statement = statement.where(Document.title.ilike(f"%{active_filters.title_query}%"))
+            statement = statement.where(
+                Document.title.ilike(f"%{active_filters.title_query}%")  # type: ignore[attr-defined]
+            )
 
-        statement = statement.order_by(Document.updated_at.desc(), Document.id.desc())
+        statement = statement.order_by(
+            Document.updated_at.desc(),  # type: ignore[attr-defined]
+            Document.id.desc(),  # type: ignore[union-attr]
+        )
         return paginate(self.session, statement, pagination=active_pagination)
 
     def update_metadata(
@@ -57,7 +63,7 @@ class DocumentRepository:
         expected_version: int,
         title: str | None = None,
         doc_type: DocumentType | None = None,
-        tags_json: list[str] | None = None,
+        tags_json: Sequence[str] | None = None,
         is_mandatory: bool | None = None,
     ) -> Document:
         values: dict[str, object] = {
@@ -70,14 +76,14 @@ class DocumentRepository:
         if doc_type is not None:
             values["doc_type"] = doc_type.value
         if tags_json is not None:
-            values["tags_json"] = tags_json
+            values["tags_json"] = list(tags_json)
         if is_mandatory is not None:
             values["is_mandatory"] = is_mandatory
 
         statement = (
             update(Document)
-            .where(Document.id == document_id)
-            .where(Document.version == expected_version)
+            .where(Document.id == document_id)  # type: ignore[arg-type]
+            .where(Document.version == expected_version)  # type: ignore[arg-type]
             .values(**values)
         )
         result = self.session.exec(statement)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -10,8 +10,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.api.errors import ApiException, error_response_docs
-from app.db.models import Agent, Project, Task, utc_now
+from app.db.models import Agent, Event, Project, Task, utc_now
 from app.db.session import get_session
+from app.events.schemas import TASK_STATUS_CHANGED_EVENT_TYPE, build_task_status_payload
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -199,10 +200,50 @@ def _commit_or_conflict(session: Session) -> None:
         ) from exc
 
 
+def _flush_or_conflict(session: Session) -> None:
+    try:
+        session.flush()
+    except IntegrityError as exc:
+        session.rollback()
+        raise ApiException(
+            status.HTTP_409_CONFLICT,
+            "RESOURCE_CONFLICT",
+            "Operation violates a database constraint.",
+        ) from exc
+
+
+def _append_task_status_event(
+    session: Session,
+    *,
+    task: Task,
+    previous_status: str | TaskStatus | None,
+) -> None:
+    if task.id is None:
+        raise ApiException(
+            status.HTTP_409_CONFLICT,
+            "RESOURCE_CONFLICT",
+            "Task missing primary key while writing status event.",
+        )
+    session.add(
+        Event(
+            project_id=task.project_id,
+            event_type=TASK_STATUS_CHANGED_EVENT_TYPE,
+            payload_json=build_task_status_payload(
+                task_id=task.id,
+                previous_status=previous_status,
+                status=task.status,
+            ),
+        )
+    )
+
+
 @router.get(
     "",
     response_model=list[TaskRead],
-    responses=error_response_docs(status.HTTP_422_UNPROCESSABLE_ENTITY),
+    responses=cast(
+        dict[int | str, dict[str, Any]],
+        error_response_docs(status.HTTP_422_UNPROCESSABLE_ENTITY),
+    ),
 )
 def list_tasks(
     session: DbSession,
@@ -212,7 +253,7 @@ def list_tasks(
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[TaskRead]:
-    statement = select(Task).order_by(Task.id).offset(offset).limit(limit)
+    statement = select(Task).order_by(Task.id).offset(offset).limit(limit)  # type: ignore[arg-type]
     if project_id is not None:
         statement = statement.where(Task.project_id == project_id)
     if status_filter is not None:
@@ -226,10 +267,13 @@ def list_tasks(
     "",
     status_code=status.HTTP_201_CREATED,
     response_model=TaskRead,
-    responses=error_response_docs(
-        status.HTTP_404_NOT_FOUND,
-        status.HTTP_409_CONFLICT,
-        status.HTTP_422_UNPROCESSABLE_ENTITY,
+    responses=cast(
+        dict[int | str, dict[str, Any]],
+        error_response_docs(
+            status.HTTP_404_NOT_FOUND,
+            status.HTTP_409_CONFLICT,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+        ),
     ),
 )
 def create_task(payload: TaskCreate, session: DbSession) -> TaskRead:
@@ -239,6 +283,8 @@ def create_task(payload: TaskCreate, session: DbSession) -> TaskRead:
 
     task = Task(**payload.model_dump(mode="python"))
     session.add(task)
+    _flush_or_conflict(session)
+    _append_task_status_event(session, task=task, previous_status=None)
     _commit_or_conflict(session)
     session.refresh(task)
     return TaskRead.model_validate(task)
@@ -247,7 +293,10 @@ def create_task(payload: TaskCreate, session: DbSession) -> TaskRead:
 @router.get(
     "/{task_id}",
     response_model=TaskRead,
-    responses=error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_ENTITY),
+    responses=cast(
+        dict[int | str, dict[str, Any]],
+        error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_ENTITY),
+    ),
 )
 def get_task(task_id: int, session: DbSession) -> TaskRead:
     return TaskRead.model_validate(_get_task_or_404(session, task_id))
@@ -256,15 +305,23 @@ def get_task(task_id: int, session: DbSession) -> TaskRead:
 @router.patch(
     "/{task_id}",
     response_model=TaskRead,
-    responses=error_response_docs(
-        status.HTTP_404_NOT_FOUND,
-        status.HTTP_409_CONFLICT,
-        status.HTTP_422_UNPROCESSABLE_ENTITY,
+    responses=cast(
+        dict[int | str, dict[str, Any]],
+        error_response_docs(
+            status.HTTP_404_NOT_FOUND,
+            status.HTTP_409_CONFLICT,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+        ),
     ),
 )
 def update_task(task_id: int, payload: TaskUpdate, session: DbSession) -> TaskRead:
     task = _get_task_or_404(session, task_id)
+    previous_status = task.status
     update_data = payload.model_dump(exclude_unset=True, mode="python")
+    requested_status = update_data.get("status")
+    status_changed = isinstance(requested_status, TaskStatus) and requested_status.value != str(
+        previous_status
+    )
 
     if "assignee_agent_id" in update_data:
         _ensure_assignee_is_valid(session, task.project_id, update_data["assignee_agent_id"])
@@ -279,6 +336,8 @@ def update_task(task_id: int, payload: TaskUpdate, session: DbSession) -> TaskRe
     for field_name, value in update_data.items():
         setattr(task, field_name, value)
     task.updated_at = utc_now()
+    if status_changed:
+        _append_task_status_event(session, task=task, previous_status=previous_status)
 
     _commit_or_conflict(session)
     session.refresh(task)
@@ -288,10 +347,13 @@ def update_task(task_id: int, payload: TaskUpdate, session: DbSession) -> TaskRe
 @router.delete(
     "/{task_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    responses=error_response_docs(
-        status.HTTP_404_NOT_FOUND,
-        status.HTTP_409_CONFLICT,
-        status.HTTP_422_UNPROCESSABLE_ENTITY,
+    responses=cast(
+        dict[int | str, dict[str, Any]],
+        error_response_docs(
+            status.HTTP_404_NOT_FOUND,
+            status.HTTP_409_CONFLICT,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+        ),
     ),
 )
 def delete_task(task_id: int, session: DbSession) -> Response:

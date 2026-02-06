@@ -48,9 +48,11 @@ class TaskRepository:
         if active_filters.assignee_agent_id is not None:
             statement = statement.where(Task.assignee_agent_id == active_filters.assignee_agent_id)
         if active_filters.title_query:
-            statement = statement.where(Task.title.ilike(f"%{active_filters.title_query}%"))
+            statement = statement.where(
+                Task.title.ilike(f"%{active_filters.title_query}%")  # type: ignore[attr-defined]
+            )
 
-        statement = statement.order_by(Task.id.desc())
+        statement = statement.order_by(Task.id.desc())  # type: ignore[union-attr]
         return paginate(self.session, statement, pagination=active_pagination)
 
     def update_status(
@@ -62,8 +64,8 @@ class TaskRepository:
     ) -> Task:
         statement = (
             update(Task)
-            .where(Task.id == task_id)
-            .where(Task.version == expected_version)
+            .where(Task.id == task_id)  # type: ignore[arg-type]
+            .where(Task.version == expected_version)  # type: ignore[arg-type]
             .values(
                 status=status.value,
                 updated_at=utc_now(),

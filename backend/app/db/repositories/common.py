@@ -42,9 +42,9 @@ class Page(Generic[T]):
 
 def paginate(session: Session, statement: Select[Any], *, pagination: Pagination) -> Page[T]:
     count_statement = select(func.count()).select_from(statement.order_by(None).subquery())
-    count_row = session.exec(count_statement).one()
+    count_row = session.exec(cast(Any, count_statement)).one()
     count_value = count_row[0] if hasattr(count_row, "__getitem__") else count_row
     total = int(count_value)
     paged_statement = statement.offset(pagination.offset).limit(pagination.page_size)
-    rows = cast(list[T], list(session.exec(paged_statement).all()))
+    rows = cast(list[T], list(session.exec(cast(Any, paged_statement)).all()))
     return Page(items=rows, total=total, page=pagination.page, page_size=pagination.page_size)

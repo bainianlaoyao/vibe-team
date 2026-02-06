@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -146,7 +146,10 @@ def _commit_or_conflict(session: Session) -> None:
 @router.get(
     "",
     response_model=list[AgentRead],
-    responses=error_response_docs(status.HTTP_422_UNPROCESSABLE_ENTITY),
+    responses=cast(
+        dict[int | str, dict[str, Any]],
+        error_response_docs(status.HTTP_422_UNPROCESSABLE_ENTITY),
+    ),
 )
 def list_agents(
     session: DbSession,
@@ -155,7 +158,7 @@ def list_agents(
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[AgentRead]:
-    statement = select(Agent).order_by(Agent.id).offset(offset).limit(limit)
+    statement = select(Agent).order_by(Agent.id).offset(offset).limit(limit)  # type: ignore[arg-type]
     if project_id is not None:
         statement = statement.where(Agent.project_id == project_id)
     if status_filter is not None:
@@ -167,10 +170,13 @@ def list_agents(
     "",
     status_code=status.HTTP_201_CREATED,
     response_model=AgentRead,
-    responses=error_response_docs(
-        status.HTTP_404_NOT_FOUND,
-        status.HTTP_409_CONFLICT,
-        status.HTTP_422_UNPROCESSABLE_ENTITY,
+    responses=cast(
+        dict[int | str, dict[str, Any]],
+        error_response_docs(
+            status.HTTP_404_NOT_FOUND,
+            status.HTTP_409_CONFLICT,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+        ),
     ),
 )
 def create_agent(payload: AgentCreate, session: DbSession) -> AgentRead:
@@ -186,7 +192,10 @@ def create_agent(payload: AgentCreate, session: DbSession) -> AgentRead:
 @router.get(
     "/{agent_id}",
     response_model=AgentRead,
-    responses=error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_ENTITY),
+    responses=cast(
+        dict[int | str, dict[str, Any]],
+        error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_ENTITY),
+    ),
 )
 def get_agent(agent_id: int, session: DbSession) -> AgentRead:
     return AgentRead.model_validate(_get_agent_or_404(session, agent_id))
@@ -195,10 +204,13 @@ def get_agent(agent_id: int, session: DbSession) -> AgentRead:
 @router.patch(
     "/{agent_id}",
     response_model=AgentRead,
-    responses=error_response_docs(
-        status.HTTP_404_NOT_FOUND,
-        status.HTTP_409_CONFLICT,
-        status.HTTP_422_UNPROCESSABLE_ENTITY,
+    responses=cast(
+        dict[int | str, dict[str, Any]],
+        error_response_docs(
+            status.HTTP_404_NOT_FOUND,
+            status.HTTP_409_CONFLICT,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+        ),
     ),
 )
 def update_agent(agent_id: int, payload: AgentUpdate, session: DbSession) -> AgentRead:
@@ -214,7 +226,10 @@ def update_agent(agent_id: int, payload: AgentUpdate, session: DbSession) -> Age
 @router.delete(
     "/{agent_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    responses=error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_ENTITY),
+    responses=cast(
+        dict[int | str, dict[str, Any]],
+        error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_ENTITY),
+    ),
 )
 def delete_agent(agent_id: int, session: DbSession) -> Response:
     agent = _get_agent_or_404(session, agent_id)

@@ -142,6 +142,12 @@ backend/
 3. 新增 repository 层：`TaskRepository`、`InboxRepository`、`DocumentRepository`，统一分页、过滤与乐观锁更新。
 4. 回归测试覆盖 schema、约束、唯一索引与 repository 行为。
 
+实现落地（P2-D，2026-02-06）：
+1. 新增事件 schema：`task.status.changed`、`run.log`、`alert.raised`。
+2. 新增 `GET /api/v1/events/stream` SSE 通道，支持 `Last-Event-ID` 断线重连。
+3. 新增 `replay_last` 参数用于最近事件回放，支持冷启动补历史。
+4. 新增 `backend/scripts/events_stream_stress.py` 高频推送压测脚本。
+
 ### 5.1 核心实体
 1. `projects`
 - `id`, `name`, `root_path`, `created_at`, `updated_at`, `version`
@@ -217,8 +223,16 @@ backend/
 5. `POST /api/v1/tools/search-files`
 
 ### 6.5 事件流
-1. `GET /api/v1/events/stream`（SSE 或 WebSocket）
-2. `GET /api/v1/runs/{run_id}/logs`
+1. `POST /api/v1/events`（写入结构化事件，当前支持三类）：
+- `task.status.changed`：任务状态变更。
+- `run.log`：运行日志增量。
+- `alert.raised`：告警事件。
+2. `GET /api/v1/events/stream`（SSE）：
+- 支持 `Last-Event-ID` 或 `last_event_id` 续传。
+- 支持 `replay_last` 最近事件回放。
+- 支持心跳注释帧与批量抓取参数（`batch_size`、`poll_interval_ms`）。
+- 支持 `max_events`（测试/压测场景下自动结束流）。
+3. `GET /api/v1/runs/{run_id}/logs`（P3）。
 
 ### 6.6 统一错误响应
 1. 全部错误接口统一返回：

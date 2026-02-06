@@ -130,6 +130,7 @@ def test_task_repository_optimistic_locking(tmp_path: Path) -> None:
             session.add(task)
             session.commit()
             session.refresh(task)
+            assert task.id is not None
 
             repository = TaskRepository(session)
             updated = repository.update_status(
@@ -194,6 +195,7 @@ def test_inbox_repository_filtering_and_optimistic_locking(tmp_path: Path) -> No
             assert filtered.items[0].title == "Risk Alert"
 
             item = filtered.items[0]
+            assert item.id is not None
             updated = repository.update_status(
                 item_id=item.id,
                 status=InboxStatus.CLOSED,
@@ -254,6 +256,7 @@ def test_document_repository_filtering_and_optimistic_locking(tmp_path: Path) ->
             assert filtered.items[0].title == "Product Spec"
 
             document = filtered.items[0]
+            assert document.id is not None
             updated = repository.update_metadata(
                 document_id=document.id,
                 expected_version=1,
