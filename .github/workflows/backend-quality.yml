@@ -1,0 +1,52 @@
+name: backend-quality
+
+on:
+  push:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-quality.yml"
+      - ".pre-commit-config.yaml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-quality.yml"
+      - ".pre-commit-config.yaml"
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+
+      - name: Sync backend dependencies
+        working-directory: backend
+        run: uv sync --dev --frozen
+
+      - name: Ruff lint
+        working-directory: backend
+        run: uv run ruff check .
+
+      - name: Black format check
+        working-directory: backend
+        run: uv run black --check .
+
+      - name: Mypy type check
+        working-directory: backend
+        run: uv run mypy app tests
+
+      - name: Pytest with coverage gate
+        working-directory: backend
+        run: uv run pytest
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage-xml
+          path: backend/coverage.xml
