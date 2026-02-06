@@ -10,7 +10,7 @@ from app.db.engine import create_engine_from_url
 from app.db.enums import (
     AgentStatus,
     DocumentType,
-    InboxCategory,
+    InboxItemType,
     InboxStatus,
     SourceType,
     TaskStatus,
@@ -163,7 +163,7 @@ def test_inbox_repository_filtering_and_optimistic_locking(tmp_path: Path) -> No
                     project_id=project.id,
                     source_type=SourceType.SYSTEM,
                     source_id="system:1",
-                    category=InboxCategory.RISK,
+                    item_type=InboxItemType.AWAIT_USER_INPUT,
                     title="Risk Alert",
                     content="Potential deadlock detected",
                     status=InboxStatus.OPEN,
@@ -174,7 +174,7 @@ def test_inbox_repository_filtering_and_optimistic_locking(tmp_path: Path) -> No
                     project_id=project.id,
                     source_type=SourceType.TASK,
                     source_id="task:2",
-                    category=InboxCategory.BLOCKED,
+                    item_type=InboxItemType.TASK_COMPLETED,
                     title="Blocked Task",
                     content="Task waiting for dependency",
                     status=InboxStatus.OPEN,
@@ -185,7 +185,10 @@ def test_inbox_repository_filtering_and_optimistic_locking(tmp_path: Path) -> No
             repository = InboxRepository(session)
             filtered = repository.list(
                 pagination=Pagination(page=1, page_size=10),
-                filters=InboxFilters(project_id=project.id, category=InboxCategory.RISK),
+                filters=InboxFilters(
+                    project_id=project.id,
+                    item_type=InboxItemType.AWAIT_USER_INPUT,
+                ),
             )
             assert filtered.total == 1
             assert filtered.items[0].title == "Risk Alert"
@@ -193,11 +196,11 @@ def test_inbox_repository_filtering_and_optimistic_locking(tmp_path: Path) -> No
             item = filtered.items[0]
             updated = repository.update_status(
                 item_id=item.id,
-                status=InboxStatus.RESOLVED,
+                status=InboxStatus.CLOSED,
                 expected_version=1,
                 resolver="alice",
             )
-            assert updated.status == InboxStatus.RESOLVED
+            assert updated.status == InboxStatus.CLOSED
             assert updated.version == 2
             assert updated.resolved_at is not None
             assert updated.resolver == "alice"

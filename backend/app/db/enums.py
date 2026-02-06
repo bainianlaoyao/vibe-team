@@ -40,16 +40,14 @@ class SourceType(StrEnum):
     DOCUMENT = "document"
 
 
-class InboxCategory(StrEnum):
-    NEEDS_REVIEW = "needs_review"
-    BLOCKED = "blocked"
-    RISK = "risk"
+class InboxItemType(StrEnum):
+    AWAIT_USER_INPUT = "await_user_input"
+    TASK_COMPLETED = "task_completed"
 
 
 class InboxStatus(StrEnum):
     OPEN = "open"
-    RESOLVED = "resolved"
-    ESCALATED = "escalated"
+    CLOSED = "closed"
 
 
 class DocumentType(StrEnum):

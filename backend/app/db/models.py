@@ -23,7 +23,7 @@ from app.db.enums import (
     CommentStatus,
     DependencyType,
     DocumentType,
-    InboxCategory,
+    InboxItemType,
     InboxStatus,
     SourceType,
     TaskRunStatus,
@@ -160,8 +160,8 @@ class InboxItem(SQLModel, table=True):
         sa_column=Column(String(length=32), nullable=False, index=True),
     )
     source_id: str = Field(sa_column=Column(String(length=64), nullable=False, index=True))
-    category: InboxCategory = Field(
-        default=InboxCategory.NEEDS_REVIEW,
+    item_type: InboxItemType = Field(
+        default=InboxItemType.AWAIT_USER_INPUT,
         sa_column=Column(String(length=32), nullable=False, index=True),
     )
     title: str = Field(sa_column=Column(String(length=160), nullable=False, index=True))

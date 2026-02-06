@@ -159,7 +159,7 @@ backend/
 - `id`, `task_id`, `agent_id`, `run_status`, `attempt`, `started_at`, `ended_at`, `error_code`, `error_message`, `token_in`, `token_out`, `cost_usd`, `version`
 
 6. `inbox_items`
-- `id`, `project_id`, `source_type`, `source_id`, `category`（needs_review/blocked/risk）, `title`, `content`, `status`（open/resolved/escalated）, `created_at`, `resolved_at`, `resolver`, `version`
+- `id`, `project_id`, `source_type`, `source_id`, `item_type`（await_user_input/task_completed）, `title`, `content`, `status`（open/closed）, `created_at`, `resolved_at`, `resolver`, `version`
 
 7. `documents`
 - `id`, `project_id`, `path`, `title`, `doc_type`, `is_mandatory`, `tags_json`, `version`, `updated_at`

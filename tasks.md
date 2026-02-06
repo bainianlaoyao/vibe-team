@@ -98,10 +98,10 @@ Phase 1 验收：
 - Owner: Backend API
 - 依赖：P2-A step 1
 - 串行任务：
-1. [ ] 实现 `GET /inbox` 与 `item_type/status` 筛选（`await_user_input/task_completed`）。
-2. [ ] 实现 `POST /inbox/{item_id}/close`，支持携带 `user_input`。
-3. [ ] 将收件箱动作写入 `events`（`inbox.item.created`、`inbox.item.closed`、可选 `user.input.submitted`）。
-4. [ ] 编写收件箱集成测试（等待用户输入流、任务完成确认流）。
+1. [x] 实现 `GET /inbox` 与 `item_type/status` 筛选（`await_user_input/task_completed`）。
+2. [x] 实现 `POST /inbox/{item_id}/close`，支持携带 `user_input`。
+3. [x] 将收件箱动作写入 `events`（`inbox.item.created`、`inbox.item.closed`、可选 `user.input.submitted`）。
+4. [x] 编写收件箱集成测试（等待用户输入流、任务完成确认流）。
 
 ### 并行任务 P2-D：事件流推送通道
 

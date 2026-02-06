@@ -83,6 +83,13 @@ uv run alembic upgrade head
 - `GET /healthz`
 - `GET /readyz`
 
+## 已实现核心 API（`/api/v1`）
+
+- `GET/POST/GET{id}/PATCH{id}/DELETE{id}`: `/agents`
+- `GET/POST/GET{id}/PATCH{id}/DELETE{id}`: `/tasks`
+- `GET /inbox`（支持 `project_id/item_type/status` 过滤）
+- `POST /inbox/{item_id}/close`（支持 `user_input`，`await_user_input` 类型必填）
+
 ## 检查与测试
 
 ```bash

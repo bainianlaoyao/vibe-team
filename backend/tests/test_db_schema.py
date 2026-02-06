@@ -110,7 +110,7 @@ def test_migrations_create_expected_schema(tmp_path: Path) -> None:
             "project_id",
             "source_type",
             "source_id",
-            "category",
+            "item_type",
             "title",
             "content",
             "status",
