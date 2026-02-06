@@ -1,9 +1,0 @@
-@import "tailwindcss";
-
-html, body, #app {
-  margin: 0;
-  height: 100%;
-  width: 100%;
-  background-color: #0F1117; /* Dark background */
-  color: #fff;
-}
