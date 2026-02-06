@@ -125,6 +125,28 @@ def test_create_typed_events_and_stream_replay(events_api_context: EventsApiCont
     assert task_status_response.status_code == 201
     assert task_status_response.json()["category"] == "task_status"
 
+    run_status_response = events_api_context.client.post(
+        "/api/v1/events",
+        json={
+            "project_id": events_api_context.project_id,
+            "event_type": "run.status.changed",
+            "payload": {
+                "run_id": 99,
+                "task_id": 22,
+                "previous_status": "running",
+                "status": "retry_scheduled",
+                "attempt": 1,
+                "idempotency_key": "task-22-request-99",
+                "next_retry_at": "2026-02-06T19:00:00Z",
+                "error_code": "TIMEOUT",
+                "actor": "runtime",
+            },
+            "trace_id": "trace-run-99-retry",
+        },
+    )
+    assert run_status_response.status_code == 201
+    assert run_status_response.json()["category"] == "run_status"
+
     run_log_response = events_api_context.client.post(
         "/api/v1/events",
         json={
@@ -167,17 +189,18 @@ def test_create_typed_events_and_stream_replay(events_api_context: EventsApiCont
         "/api/v1/events/stream",
         params={
             "project_id": events_api_context.project_id,
-            "replay_last": 3,
-            "max_events": 3,
+            "replay_last": 4,
+            "max_events": 4,
             "batch_size": 10,
             "poll_interval_ms": 100,
         },
     ) as stream_response:
         assert stream_response.status_code == 200
-        streamed_events = _collect_sse_events(stream_response, expected_count=3)
+        streamed_events = _collect_sse_events(stream_response, expected_count=4)
 
     assert [event["event_type"] for event in streamed_events] == [
         "task.status.changed",
+        "run.status.changed",
         "run.log",
         "alert.raised",
     ]

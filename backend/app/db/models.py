@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from datetime import date as date_type
 from decimal import Decimal
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import (
     JSON,
@@ -33,6 +34,10 @@ from app.db.enums import (
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+def generate_idempotency_key() -> str:
+    return uuid4().hex
 
 
 class Project(SQLModel, table=True):
@@ -117,12 +122,26 @@ class TaskRun(SQLModel, table=True):
     __tablename__ = "task_runs"
     __table_args__ = (
         UniqueConstraint("task_id", "attempt", name="uq_task_runs_task_attempt"),
+        UniqueConstraint("idempotency_key", name="uq_task_runs_idempotency_key"),
         CheckConstraint("attempt >= 1", name="ck_task_runs_attempt_positive"),
+        CheckConstraint(
+            "length(idempotency_key) >= 1",
+            name="ck_task_runs_idempotency_key_present",
+        ),
+        CheckConstraint(
+            "next_retry_at IS NULL OR run_status = 'retry_scheduled'",
+            name="ck_task_runs_next_retry_status_match",
+        ),
+        CheckConstraint(
+            "run_status <> 'retry_scheduled' OR next_retry_at IS NOT NULL",
+            name="ck_task_runs_retry_status_requires_next_retry_at",
+        ),
         CheckConstraint("token_in >= 0", name="ck_task_runs_token_in_non_negative"),
         CheckConstraint("token_out >= 0", name="ck_task_runs_token_out_non_negative"),
         CheckConstraint("cost_usd >= 0", name="ck_task_runs_cost_non_negative"),
         CheckConstraint("version >= 1", name="ck_task_runs_version_positive"),
         Index("ix_task_runs_task_status_started", "task_id", "run_status", "started_at"),
+        Index("ix_task_runs_retry_schedule", "run_status", "next_retry_at"),
     )
 
     id: int | None = Field(default=None, primary_key=True)
@@ -133,8 +152,13 @@ class TaskRun(SQLModel, table=True):
         sa_column=Column(String(length=32), nullable=False, index=True),
     )
     attempt: int = Field(default=1, nullable=False)
+    idempotency_key: str = Field(
+        default_factory=generate_idempotency_key,
+        sa_column=Column(String(length=80), nullable=False),
+    )
     started_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
     ended_at: datetime | None = Field(default=None, nullable=True)
+    next_retry_at: datetime | None = Field(default=None, nullable=True, index=True)
     error_code: str | None = Field(default=None, sa_column=Column(String(length=64), nullable=True))
     error_message: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
     token_in: int = Field(default=0, nullable=False)

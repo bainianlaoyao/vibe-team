@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -220,6 +220,94 @@ def test_task_run_non_negative_constraints(tmp_path: Path) -> None:
                     run_status=TaskRunStatus.RUNNING,
                     attempt=1,
                     token_in=-1,
+                    token_out=0,
+                    cost_usd=Decimal("0.0000"),
+                )
+            )
+            with pytest.raises(IntegrityError):
+                session.commit()
+            session.rollback()
+    finally:
+        engine.dispose()
+
+
+def test_task_run_unique_idempotency_key(tmp_path: Path) -> None:
+    db_url = _to_sqlite_url(tmp_path / "task-run-idempotency.db")
+    initialize_database(database_url=db_url, seed=False)
+
+    engine = create_engine_from_url(db_url)
+    try:
+        with Session(engine) as session:
+            _, agent, task_a, _ = _create_project_agent_and_tasks(session, tmp_path)
+
+            session.add(
+                TaskRun(
+                    task_id=task_a.id,
+                    agent_id=agent.id,
+                    run_status=TaskRunStatus.QUEUED,
+                    attempt=1,
+                    idempotency_key="run-constraint-dup",
+                    token_in=0,
+                    token_out=0,
+                    cost_usd=Decimal("0.0000"),
+                )
+            )
+            session.commit()
+
+            session.add(
+                TaskRun(
+                    task_id=task_a.id,
+                    agent_id=agent.id,
+                    run_status=TaskRunStatus.QUEUED,
+                    attempt=2,
+                    idempotency_key="run-constraint-dup",
+                    token_in=0,
+                    token_out=0,
+                    cost_usd=Decimal("0.0000"),
+                )
+            )
+            with pytest.raises(IntegrityError):
+                session.commit()
+            session.rollback()
+    finally:
+        engine.dispose()
+
+
+def test_task_run_retry_schedule_contract_constraints(tmp_path: Path) -> None:
+    db_url = _to_sqlite_url(tmp_path / "task-run-retry-contract.db")
+    initialize_database(database_url=db_url, seed=False)
+
+    engine = create_engine_from_url(db_url)
+    try:
+        with Session(engine) as session:
+            _, agent, task_a, _ = _create_project_agent_and_tasks(session, tmp_path)
+
+            session.add(
+                TaskRun(
+                    task_id=task_a.id,
+                    agent_id=agent.id,
+                    run_status=TaskRunStatus.RETRY_SCHEDULED,
+                    attempt=1,
+                    idempotency_key="retry-contract-missing-next-retry",
+                    next_retry_at=None,
+                    token_in=0,
+                    token_out=0,
+                    cost_usd=Decimal("0.0000"),
+                )
+            )
+            with pytest.raises(IntegrityError):
+                session.commit()
+            session.rollback()
+
+            session.add(
+                TaskRun(
+                    task_id=task_a.id,
+                    agent_id=agent.id,
+                    run_status=TaskRunStatus.QUEUED,
+                    attempt=1,
+                    idempotency_key="retry-contract-non-retry-status",
+                    next_retry_at=datetime.now(UTC),
+                    token_in=0,
                     token_out=0,
                     cost_usd=Decimal("0.0000"),
                 )

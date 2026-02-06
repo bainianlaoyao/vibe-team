@@ -9,12 +9,14 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from app.db.models import Event
 
 TASK_STATUS_CHANGED_EVENT_TYPE = "task.status.changed"
+RUN_STATUS_CHANGED_EVENT_TYPE = "run.status.changed"
 RUN_LOG_EVENT_TYPE = "run.log"
 ALERT_RAISED_EVENT_TYPE = "alert.raised"
 
 
 class EventCategory(StrEnum):
     TASK_STATUS = "task_status"
+    RUN_STATUS = "run_status"
     RUN_LOG = "run_log"
     ALERT = "alert"
     GENERIC = "generic"
@@ -43,6 +45,18 @@ class RunLogEventPayload(BaseModel):
     sequence: int | None = Field(default=None, ge=1)
 
 
+class RunStatusEventPayload(BaseModel):
+    run_id: int = Field(gt=0)
+    task_id: int = Field(gt=0)
+    previous_status: str | None = Field(default=None, min_length=1, max_length=32)
+    status: str = Field(min_length=1, max_length=32)
+    attempt: int = Field(ge=1)
+    idempotency_key: str = Field(min_length=1, max_length=80)
+    next_retry_at: datetime | None = None
+    error_code: str | None = Field(default=None, min_length=1, max_length=64)
+    actor: str | None = Field(default=None, min_length=1, max_length=120)
+
+
 class AlertSeverity(StrEnum):
     INFO = "info"
     WARNING = "warning"
@@ -59,7 +73,9 @@ class AlertEventPayload(BaseModel):
     run_id: int | None = Field(default=None, gt=0)
 
 
-KnownEventPayload = TaskStatusEventPayload | RunLogEventPayload | AlertEventPayload
+KnownEventPayload = (
+    TaskStatusEventPayload | RunStatusEventPayload | RunLogEventPayload | AlertEventPayload
+)
 StreamPayload = KnownEventPayload | dict[str, Any]
 
 
@@ -120,12 +136,42 @@ def build_task_status_payload(
     ).model_dump(mode="json")
 
 
+def build_run_status_payload(
+    *,
+    run_id: int,
+    task_id: int,
+    previous_status: str | StrEnum | None,
+    status: str | StrEnum,
+    attempt: int,
+    idempotency_key: str,
+    next_retry_at: datetime | None = None,
+    error_code: str | None = None,
+    actor: str | None = None,
+) -> dict[str, Any]:
+    normalized_status = _normalize_status(status)
+    if normalized_status is None:
+        raise ValueError("status cannot be None")
+    return RunStatusEventPayload(
+        run_id=run_id,
+        task_id=task_id,
+        previous_status=_normalize_status(previous_status),
+        status=normalized_status,
+        attempt=attempt,
+        idempotency_key=idempotency_key,
+        next_retry_at=next_retry_at,
+        error_code=error_code,
+        actor=actor,
+    ).model_dump(mode="json")
+
+
 def _parse_known_payload(
     event_type: str, payload: dict[str, Any]
 ) -> tuple[EventCategory, StreamPayload]:
     try:
         if event_type == TASK_STATUS_CHANGED_EVENT_TYPE:
             return EventCategory.TASK_STATUS, TaskStatusEventPayload.model_validate(payload)
+        if event_type == RUN_STATUS_CHANGED_EVENT_TYPE:
+            return EventCategory.RUN_STATUS, RunStatusEventPayload.model_validate(payload)
         if event_type == RUN_LOG_EVENT_TYPE:
             return EventCategory.RUN_LOG, RunLogEventPayload.model_validate(payload)
         if event_type == ALERT_RAISED_EVENT_TYPE:

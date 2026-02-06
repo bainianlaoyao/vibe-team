@@ -28,6 +28,8 @@ class DependencyType(StrEnum):
 class TaskRunStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
+    RETRY_SCHEDULED = "retry_scheduled"
+    INTERRUPTED = "interrupted"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -68,5 +70,14 @@ TASK_TERMINAL_STATUSES: frozenset[TaskStatus] = frozenset(
         TaskStatus.BLOCKED,
         TaskStatus.FAILED,
         TaskStatus.CANCELLED,
+    }
+)
+
+
+TASK_RUN_TERMINAL_STATUSES: frozenset[TaskRunStatus] = frozenset(
+    {
+        TaskRunStatus.SUCCEEDED,
+        TaskRunStatus.FAILED,
+        TaskRunStatus.CANCELLED,
     }
 )

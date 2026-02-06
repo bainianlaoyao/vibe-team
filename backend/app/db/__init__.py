@@ -1,6 +1,7 @@
 """Database layer modules and public helpers."""
 
 from app.db.enums import (
+    TASK_RUN_TERMINAL_STATUSES,
     AgentStatus,
     CommentStatus,
     DependencyType,
@@ -44,6 +45,7 @@ __all__ = [
     "TaskDependency",
     "TaskRun",
     "TaskRunStatus",
+    "TASK_RUN_TERMINAL_STATUSES",
     "TaskStatus",
     "get_session",
     "session_scope",

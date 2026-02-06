@@ -17,6 +17,7 @@ from app.db.session import get_session, session_scope
 from app.events.schemas import (
     AlertEventPayload,
     RunLogEventPayload,
+    RunStatusEventPayload,
     StreamEventRecord,
     TaskStatusEventPayload,
     serialize_sse_event,
@@ -74,6 +75,33 @@ class RunLogEventCreate(BaseModel):
     )
 
 
+class RunStatusEventCreate(BaseModel):
+    project_id: int = Field(gt=0)
+    event_type: Literal["run.status.changed"] = "run.status.changed"
+    payload: RunStatusEventPayload
+    trace_id: str | None = Field(default=None, max_length=64)
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "project_id": 1,
+                "event_type": "run.status.changed",
+                "payload": {
+                    "run_id": 78,
+                    "task_id": 22,
+                    "previous_status": "running",
+                    "status": "retry_scheduled",
+                    "attempt": 2,
+                    "idempotency_key": "run-22-attempt-2",
+                    "next_retry_at": "2026-02-06T19:05:00Z",
+                    "error_code": "TIMEOUT",
+                    "actor": "runtime",
+                },
+                "trace_id": "trace-run-78-retry",
+            }
+        }
+    )
+
+
 class AlertEventCreate(BaseModel):
     project_id: int = Field(gt=0)
     event_type: Literal["alert.raised"] = "alert.raised"
@@ -99,7 +127,7 @@ class AlertEventCreate(BaseModel):
 
 
 EventCreateRequest = Annotated[
-    TaskStatusEventCreate | RunLogEventCreate | AlertEventCreate,
+    TaskStatusEventCreate | RunStatusEventCreate | RunLogEventCreate | AlertEventCreate,
     Field(discriminator="event_type"),
 ]
 
