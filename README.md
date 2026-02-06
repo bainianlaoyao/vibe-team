@@ -75,11 +75,11 @@ Vue 3 + TypeScript
 
 **后端:**
 ```
-Node.js + TypeScript
-├── Express / Fastify
-├── Prisma (ORM)
-├── BullMQ (任务队列)
-└── Socket.IO (实时通信)
+Python 3.10+
+├── FastAPI (Web框架)
+├── SQLModel (ORM/SQLAlchemy)
+├── Celery (任务队列)
+└── Python-SocketIO (实时通信)
 ```
 
 ---

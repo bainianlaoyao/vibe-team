@@ -1,0 +1,105 @@
+{
+  "id": "a6eddbf4-eb7b-4648-9ef2-a9e164ab0e54",
+  "type": "chain",
+  "steps": [
+    {
+      "id": "f2783f8e-a63c-4761-9195-2862672fc7d0",
+      "type": "task",
+      "name": "PM-Alice: Draft initial requirement for Smart Search",
+      "agent_name": "PM-Alice",
+      "instruction": "Draft initial requirement for Smart Search"
+    },
+    {
+      "id": "e017406f-0da5-46e3-8e9e-ca1b02429cee",
+      "type": "task",
+      "name": "Arch-Bob: Review requirements for performance feasibility",
+      "agent_name": "Arch-Bob",
+      "instruction": "Review requirements for performance feasibility"
+    },
+    {
+      "id": "db7aa23b-ff4c-4dac-ac47-7a480a837ebf",
+      "type": "task",
+      "name": "PM-Alice: Refine requirements based on technical feedback",
+      "agent_name": "PM-Alice",
+      "instruction": "Refine requirements based on technical feedback"
+    },
+    {
+      "id": "bec57f0f-86b4-464a-addd-a7e9d6d53543",
+      "type": "task",
+      "name": "Arch-Bob: Create technical specification and API design",
+      "agent_name": "Arch-Bob",
+      "instruction": "Create technical specification and API design"
+    },
+    {
+      "id": "f44f2401-234c-4999-a45e-c433b05c3057",
+      "type": "human",
+      "name": "Ask: Approve Tech Spec?",
+      "question": "Approve Tech Spec?",
+      "options": [
+        "Yes",
+        "Needs Revision"
+      ]
+    },
+    {
+      "id": "78cc92ba-9778-4e67-90a4-8c8be5c4fede",
+      "type": "chain",
+      "steps": [
+        {
+          "id": "fcb7bb1c-fe8d-4798-9b97-d8198894068a",
+          "type": "task",
+          "name": "Dev-Charlie: [SmartSearch] Write core logic (Iter 1)",
+          "agent_name": "Dev-Charlie",
+          "instruction": "[SmartSearch] Write core logic (Iter 1)"
+        },
+        {
+          "id": "0be4b086-5c56-4f6a-9627-49fa838d6e35",
+          "type": "task",
+          "name": "QA-Dave: [SmartSearch] Review code & Write tests (Iter 1)",
+          "agent_name": "QA-Dave",
+          "instruction": "[SmartSearch] Review code & Write tests (Iter 1)"
+        },
+        {
+          "id": "a0933475-5a1b-45a9-93fd-4f6f48a000eb",
+          "type": "task",
+          "name": "Dev-Charlie: [SmartSearch] Fix bugs based on feedback (Iter 1)",
+          "agent_name": "Dev-Charlie",
+          "instruction": "[SmartSearch] Fix bugs based on feedback (Iter 1)"
+        },
+        {
+          "id": "57b342fc-d426-40ac-9958-73f33f0c8c33",
+          "type": "chain",
+          "steps": [
+            {
+              "id": "c5c56618-c8ba-4818-91aa-3483b47e5580",
+              "type": "task",
+              "name": "Dev-Charlie: [SmartSearch] Write core logic (Iter 2)",
+              "agent_name": "Dev-Charlie",
+              "instruction": "[SmartSearch] Write core logic (Iter 2)"
+            },
+            {
+              "id": "61fa50c3-495b-4d8a-a3ab-73647ef7cc40",
+              "type": "task",
+              "name": "QA-Dave: [SmartSearch] Review code & Write tests (Iter 2)",
+              "agent_name": "QA-Dave",
+              "instruction": "[SmartSearch] Review code & Write tests (Iter 2)"
+            },
+            {
+              "id": "268a48fd-e8c7-4487-866a-003d18e879b6",
+              "type": "task",
+              "name": "Dev-Charlie: [SmartSearch] Fix bugs based on feedback (Iter 2)",
+              "agent_name": "Dev-Charlie",
+              "instruction": "[SmartSearch] Fix bugs based on feedback (Iter 2)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "66d27241-7ad7-4d9f-8fea-fe5e09cc2c07",
+      "type": "task",
+      "name": "QA-Dave: Final Acceptance Testing",
+      "agent_name": "QA-Dave",
+      "instruction": "Final Acceptance Testing"
+    }
+  ]
+}
