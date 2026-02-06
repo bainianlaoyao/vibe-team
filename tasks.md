@@ -130,11 +130,11 @@ Phase 2 验收：
 - Owner: Orchestration
 - 依赖：Phase 2 完成
 - 串行任务：
-1. [ ] 定义 `todo/running/review/done/blocked/failed/cancelled` 状态迁移表。
-2. [ ] 实现调度器：按优先级与依赖关系挑选可执行任务。
-3. [ ] 实现暂停、恢复、重试、取消等命令处理。
-4. [ ] 为每次状态迁移写事件与 trace_id。
-5. [ ] 为非法迁移编写回归测试。
+1. [x] 定义 `todo/running/review/done/blocked/failed/cancelled` 状态迁移表。
+2. [x] 实现调度器：按优先级与依赖关系挑选可执行任务。
+3. [x] 实现暂停、恢复、重试、取消等命令处理。
+4. [x] 为每次状态迁移写事件与 trace_id。
+5. [x] 为非法迁移编写回归测试。
 
 ### 并行任务 P3-B：LLM 适配层（OpenAI/Anthropic）
 
@@ -152,10 +152,10 @@ Phase 2 验收：
 - Owner: Runtime
 - 依赖：P3-A step 1
 - 串行任务：
-1. [ ] 定义 `task_runs` 运行状态枚举与字段契约（`attempt`、`idempotency_key`、`next_retry_at`）。
-2. [ ] 搭建失败注入测试桩（超时、临时错误、进程重启中断）。
-3. [ ] 补齐 run 级 repository 接口与事件写入契约。
-4. [ ] 输出 P3-C 实施基线（状态图与恢复时序）。
+1. [x] 定义 `task_runs` 运行状态枚举与字段契约（`attempt`、`idempotency_key`、`next_retry_at`）。
+2. [x] 搭建失败注入测试桩（超时、临时错误、进程重启中断）。
+3. [x] 补齐 run 级 repository 接口与事件写入契约。
+4. [x] 输出 P3-C 实施基线（状态图与恢复时序）。
 
 ### 并行任务 P3-C：运行生命周期与失败恢复
 
@@ -173,10 +173,10 @@ Phase 2 验收：
 - Owner: Backend API
 - 依赖：P3-A step 3
 - 串行任务：
-1. [ ] 实现 `POST /tasks/{id}/pause|resume|retry`。
-2. [ ] 实现广播指令接口（批量作用于多个运行任务）。
-3. [ ] 干预动作全部写审计日志。
-4. [ ] 编写并发干预冲突测试。
+1. [x] 实现 `POST /tasks/{id}/pause|resume|retry`。
+2. [x] 实现广播指令接口（批量作用于多个运行任务）。
+3. [x] 干预动作全部写审计日志。
+4. [x] 编写并发干预冲突测试。
 
 Phase 3 验收：
 1. 任务可自动进入执行并稳定流转。

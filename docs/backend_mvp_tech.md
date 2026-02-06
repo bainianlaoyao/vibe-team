@@ -148,6 +148,19 @@ backend/
 3. 新增 `replay_last` 参数用于最近事件回放，支持冷启动补历史。
 4. 新增 `backend/scripts/events_stream_stress.py` 高频推送压测脚本。
 
+实现落地（P3-A，2026-02-06）：
+1. 新增任务状态机模块，统一约束 `todo/running/review/done/blocked/failed/cancelled` 的迁移合法性。
+2. 新增调度器模块，按 `priority` 升序并结合 `parent_task_id` 与 `task_dependencies` 判定可执行任务。
+3. 新增任务命令：`pause/resume/retry/cancel`，通过状态机进行命令合法性校验。
+4. 任务状态迁移事件统一写入 `events`，每条迁移事件强制携带 `trace_id`（请求传入或后端生成）。
+5. 补齐非法迁移与非法命令回归测试。
+
+实现落地（P3-D，2026-02-06）：
+1. 补齐人工干预接口：`POST /api/v1/tasks/{task_id}/pause|resume|retry`，支持 `expected_version` 乐观锁参数。
+2. 新增批量干预接口：`POST /api/v1/tasks/broadcast/{command}`，默认按 `running` 状态筛选并可按 `task_ids/status` 定向广播。
+3. 新增干预审计事件 `task.intervention.audit`，覆盖成功、拒绝与版本冲突三类结果。
+4. 新增并发冲突回归测试，验证 stale `expected_version` 返回 `409 TASK_VERSION_CONFLICT` 且写入审计日志。
+
 ### 5.1 核心实体
 1. `projects`
 - `id`, `name`, `root_path`, `created_at`, `updated_at`, `version`
@@ -162,7 +175,7 @@ backend/
 - `id`, `task_id`, `depends_on_task_id`, `dependency_type`（finish_to_start 等）
 
 5. `task_runs`
-- `id`, `task_id`, `agent_id`, `run_status`, `attempt`, `started_at`, `ended_at`, `error_code`, `error_message`, `token_in`, `token_out`, `cost_usd`, `version`
+- `id`, `task_id`, `agent_id`, `run_status`, `attempt`, `idempotency_key`, `started_at`, `ended_at`, `next_retry_at`, `error_code`, `error_message`, `token_in`, `token_out`, `cost_usd`, `version`
 
 6. `inbox_items`
 - `id`, `project_id`, `source_type`, `source_id`, `item_type`（await_user_input/task_completed）, `title`, `content`, `status`（open/closed）, `created_at`, `resolved_at`, `resolver`, `version`
@@ -189,6 +202,35 @@ backend/
 7. `cancelled`
 
 允许迁移由编排层统一控制，不允许前端直接跨级写状态。
+状态迁移（P3-A）：
+1. `todo` -> `running/blocked/cancelled`
+2. `running` -> `review/blocked/failed/cancelled`
+3. `review` -> `running/done/blocked/failed/cancelled`
+4. `blocked` -> `todo/running/cancelled`
+5. `failed` -> `todo/running/cancelled`
+6. `cancelled` -> `todo`（仅用于重试）
+7. `done` -> （终态，不允许迁移）
+
+### 5.3 运行状态约束（task_runs.run_status）
+1. `queued`
+2. `running`
+3. `retry_scheduled`
+4. `interrupted`
+5. `succeeded`
+6. `failed`
+7. `cancelled`
+
+运行状态迁移（P3-C0）：
+1. `queued` -> `running/cancelled`
+2. `running` -> `succeeded/failed/retry_scheduled/cancelled/interrupted`
+3. `retry_scheduled` -> `running/cancelled`
+4. `interrupted` -> `running/failed/cancelled`
+5. `succeeded/failed/cancelled` -> 终态
+
+字段契约（P3-C0）：
+1. `attempt >= 1`，且 `(task_id, attempt)` 唯一，按同一任务重试次数递增。
+2. `idempotency_key` 全局唯一且非空，用于幂等防重创建 run。
+3. `next_retry_at` 仅允许在 `run_status=retry_scheduled` 时非空，其他状态必须为空。
 
 ## 6. API 设计（MVP）
 
@@ -209,6 +251,7 @@ backend/
 7. `POST /api/v1/tasks/{task_id}/pause`（P3）
 8. `POST /api/v1/tasks/{task_id}/resume`（P3）
 9. `POST /api/v1/tasks/{task_id}/retry`（P3）
+10. `POST /api/v1/tasks/{task_id}/cancel`（P3）
 
 ### 6.3 收件箱与用户确认
 1. `GET /api/v1/inbox`

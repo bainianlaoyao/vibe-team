@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any, cast
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -10,21 +11,24 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.api.errors import ApiException, error_response_docs
+from app.db.enums import TaskStatus
 from app.db.models import Agent, Event, Project, Task, utc_now
 from app.db.session import get_session
 from app.events.schemas import TASK_STATUS_CHANGED_EVENT_TYPE, build_task_status_payload
+from app.orchestration.state_machine import (
+    InvalidTaskCommandError,
+    InvalidTaskTransitionError,
+    TaskCommand,
+    ensure_status_transition,
+    resolve_command_target_status,
+    validate_initial_status,
+)
+
+DEFAULT_TASK_EVENT_ACTOR = "api"
+TASK_INTERVENTION_AUDIT_EVENT_TYPE = "task.intervention.audit"
+MAX_BROADCAST_TASKS = 200
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
-
-
-class TaskStatus(StrEnum):
-    TODO = "todo"
-    RUNNING = "running"
-    REVIEW = "review"
-    DONE = "done"
-    BLOCKED = "blocked"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
 
 
 class TaskCreate(BaseModel):
@@ -36,6 +40,9 @@ class TaskCreate(BaseModel):
     assignee_agent_id: int | None = Field(default=None, gt=0)
     parent_task_id: int | None = Field(default=None, gt=0)
     due_at: datetime | None = None
+    trace_id: str | None = Field(default=None, max_length=64)
+    actor: str | None = Field(default=DEFAULT_TASK_EVENT_ACTOR, min_length=1, max_length=120)
+    run_id: int | None = Field(default=None, gt=0)
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
@@ -47,6 +54,8 @@ class TaskCreate(BaseModel):
                 "assignee_agent_id": 4,
                 "parent_task_id": 3,
                 "due_at": "2026-02-10T18:00:00Z",
+                "trace_id": "trace-task-22-create",
+                "actor": "api",
             }
         }
     )
@@ -60,12 +69,18 @@ class TaskUpdate(BaseModel):
     assignee_agent_id: int | None = Field(default=None, gt=0)
     parent_task_id: int | None = Field(default=None, gt=0)
     due_at: datetime | None = None
+    trace_id: str | None = Field(default=None, max_length=64)
+    actor: str | None = Field(default=DEFAULT_TASK_EVENT_ACTOR, min_length=1, max_length=120)
+    run_id: int | None = Field(default=None, gt=0)
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
                 "status": "running",
                 "priority": 1,
                 "assignee_agent_id": 4,
+                "trace_id": "trace-task-22-start",
+                "actor": "scheduler",
+                "run_id": 78,
             }
         }
     )
@@ -75,6 +90,90 @@ class TaskUpdate(BaseModel):
         if not self.model_fields_set:
             raise ValueError("At least one field must be provided.")
         return self
+
+
+class TaskCommandRequest(BaseModel):
+    trace_id: str | None = Field(default=None, max_length=64)
+    actor: str | None = Field(default=DEFAULT_TASK_EVENT_ACTOR, min_length=1, max_length=120)
+    run_id: int | None = Field(default=None, gt=0)
+    expected_version: int | None = Field(default=None, gt=0)
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "trace_id": "trace-task-22-pause",
+                "actor": "operator",
+                "expected_version": 2,
+            }
+        }
+    )
+
+
+class TaskInterventionSource(StrEnum):
+    SINGLE = "single"
+    BROADCAST = "broadcast"
+
+
+class TaskInterventionOutcome(StrEnum):
+    APPLIED = "applied"
+    REJECTED = "rejected"
+    CONFLICT = "conflict"
+
+
+class TaskInterventionAuditPayload(BaseModel):
+    task_id: int = Field(gt=0)
+    command: str = Field(min_length=1, max_length=32)
+    source: TaskInterventionSource
+    previous_status: str = Field(min_length=1, max_length=32)
+    status: str = Field(min_length=1, max_length=32)
+    run_id: int | None = Field(default=None, gt=0)
+    actor: str = Field(min_length=1, max_length=120)
+    outcome: TaskInterventionOutcome
+    expected_version: int | None = Field(default=None, gt=0)
+    actual_version: int = Field(ge=1)
+    error_code: str | None = Field(default=None, min_length=1, max_length=64)
+    error_message: str | None = Field(default=None, min_length=1, max_length=512)
+
+
+class TaskCommandBroadcastRequest(BaseModel):
+    project_id: int = Field(gt=0)
+    task_ids: list[int] | None = Field(default=None, min_length=1, max_length=MAX_BROADCAST_TASKS)
+    status: TaskStatus | None = None
+    limit: int = Field(default=MAX_BROADCAST_TASKS, ge=1, le=MAX_BROADCAST_TASKS)
+    trace_id: str | None = Field(default=None, max_length=64)
+    actor: str | None = Field(default=DEFAULT_TASK_EVENT_ACTOR, min_length=1, max_length=120)
+    run_id: int | None = Field(default=None, gt=0)
+    expected_version: int | None = Field(default=None, gt=0)
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "project_id": 1,
+                "status": "running",
+                "limit": 100,
+                "trace_id": "trace-task-broadcast-pause",
+                "actor": "operator",
+            }
+        }
+    )
+
+
+class TaskCommandBroadcastItemResult(BaseModel):
+    task_id: int
+    outcome: TaskInterventionOutcome
+    previous_status: str | None = None
+    status: str | None = None
+    version: int | None = Field(default=None, ge=1)
+    error_code: str | None = None
+    error_message: str | None = None
+
+
+class TaskCommandBroadcastResponse(BaseModel):
+    command: TaskCommand
+    project_id: int
+    status_filter: TaskStatus | None = None
+    total_targets: int
+    applied_count: int
+    failed_count: int
+    items: list[TaskCommandBroadcastItemResult]
 
 
 class TaskRead(BaseModel):
@@ -89,6 +188,7 @@ class TaskRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     due_at: datetime | None
+    version: int
     model_config = ConfigDict(
         from_attributes=True,
         json_schema_extra={
@@ -104,12 +204,33 @@ class TaskRead(BaseModel):
                 "created_at": "2026-02-06T17:00:00Z",
                 "updated_at": "2026-02-06T17:00:00Z",
                 "due_at": "2026-02-10T18:00:00Z",
+                "version": 3,
             }
         },
     )
 
 
 DbSession = Annotated[Session, Depends(get_session)]
+
+
+def _normalized_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized if normalized else None
+
+
+def _to_task_status(value: TaskStatus | str) -> TaskStatus:
+    if isinstance(value, TaskStatus):
+        return value
+    return TaskStatus(str(value))
+
+
+def _resolve_transition_trace_id(*, task_id: int, trace_id: str | None) -> str:
+    provided = _normalized_optional_text(trace_id)
+    if provided is not None:
+        return provided
+    return f"trace-task-{task_id}-{uuid4().hex}"
 
 
 def _require_project(session: Session, project_id: int) -> Project:
@@ -216,7 +337,10 @@ def _append_task_status_event(
     session: Session,
     *,
     task: Task,
-    previous_status: str | TaskStatus | None,
+    previous_status: TaskStatus | str | None,
+    trace_id: str | None,
+    run_id: int | None,
+    actor: str | None,
 ) -> None:
     if task.id is None:
         raise ApiException(
@@ -232,9 +356,196 @@ def _append_task_status_event(
                 task_id=task.id,
                 previous_status=previous_status,
                 status=task.status,
+                run_id=run_id,
+                actor=_normalized_optional_text(actor) or DEFAULT_TASK_EVENT_ACTOR,
             ),
+            trace_id=_resolve_transition_trace_id(task_id=task.id, trace_id=trace_id),
         )
     )
+
+
+def _append_task_intervention_audit_event(
+    session: Session,
+    *,
+    task: Task,
+    command: TaskCommand,
+    source: TaskInterventionSource,
+    payload: TaskCommandRequest,
+    previous_status: TaskStatus,
+    current_status: TaskStatus,
+    outcome: TaskInterventionOutcome,
+    error_code: str | None = None,
+    error_message: str | None = None,
+) -> None:
+    if task.id is None:
+        raise ApiException(
+            status.HTTP_409_CONFLICT,
+            "RESOURCE_CONFLICT",
+            "Task missing primary key while writing intervention audit event.",
+        )
+
+    actor = _normalized_optional_text(payload.actor) or DEFAULT_TASK_EVENT_ACTOR
+    payload_json = TaskInterventionAuditPayload(
+        task_id=task.id,
+        command=command.value,
+        source=source,
+        previous_status=previous_status.value,
+        status=current_status.value,
+        run_id=payload.run_id,
+        actor=actor,
+        outcome=outcome,
+        expected_version=payload.expected_version,
+        actual_version=task.version,
+        error_code=error_code,
+        error_message=_normalized_optional_text(error_message),
+    ).model_dump(mode="json")
+    session.add(
+        Event(
+            project_id=task.project_id,
+            event_type=TASK_INTERVENTION_AUDIT_EVENT_TYPE,
+            payload_json=payload_json,
+            trace_id=_resolve_transition_trace_id(task_id=task.id, trace_id=payload.trace_id),
+        )
+    )
+
+
+def _raise_invalid_transition(message: str) -> None:
+    raise ApiException(
+        status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "INVALID_TASK_TRANSITION",
+        message,
+    )
+
+
+def _raise_invalid_command(message: str) -> None:
+    raise ApiException(
+        status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "INVALID_TASK_COMMAND",
+        message,
+    )
+
+
+def _apply_task_command(
+    session: Session,
+    *,
+    task_id: int,
+    command: TaskCommand,
+    payload: TaskCommandRequest,
+    source: TaskInterventionSource = TaskInterventionSource.SINGLE,
+) -> TaskRead:
+    task = _get_task_or_404(session, task_id)
+    previous_status = _to_task_status(task.status)
+
+    if payload.expected_version is not None and payload.expected_version != task.version:
+        message = (
+            "Task "
+            f"{task_id} version mismatch, "
+            f"expected {payload.expected_version}, got {task.version}."
+        )
+        _append_task_intervention_audit_event(
+            session,
+            task=task,
+            command=command,
+            source=source,
+            payload=payload,
+            previous_status=previous_status,
+            current_status=previous_status,
+            outcome=TaskInterventionOutcome.CONFLICT,
+            error_code="TASK_VERSION_CONFLICT",
+            error_message=message,
+        )
+        _commit_or_conflict(session)
+        raise ApiException(
+            status.HTTP_409_CONFLICT,
+            "TASK_VERSION_CONFLICT",
+            message,
+        )
+
+    try:
+        target_status = resolve_command_target_status(previous_status, command)
+    except InvalidTaskCommandError as exc:
+        _append_task_intervention_audit_event(
+            session,
+            task=task,
+            command=command,
+            source=source,
+            payload=payload,
+            previous_status=previous_status,
+            current_status=previous_status,
+            outcome=TaskInterventionOutcome.REJECTED,
+            error_code="INVALID_TASK_COMMAND",
+            error_message=str(exc),
+        )
+        _commit_or_conflict(session)
+        _raise_invalid_command(str(exc))
+    except InvalidTaskTransitionError as exc:
+        _append_task_intervention_audit_event(
+            session,
+            task=task,
+            command=command,
+            source=source,
+            payload=payload,
+            previous_status=previous_status,
+            current_status=previous_status,
+            outcome=TaskInterventionOutcome.REJECTED,
+            error_code="INVALID_TASK_TRANSITION",
+            error_message=str(exc),
+        )
+        _commit_or_conflict(session)
+        _raise_invalid_transition(str(exc))
+
+    task.status = target_status
+    task.updated_at = utc_now()
+    task.version += 1
+    _append_task_status_event(
+        session,
+        task=task,
+        previous_status=previous_status,
+        trace_id=payload.trace_id,
+        run_id=payload.run_id,
+        actor=payload.actor,
+    )
+    _append_task_intervention_audit_event(
+        session,
+        task=task,
+        command=command,
+        source=source,
+        payload=payload,
+        previous_status=previous_status,
+        current_status=target_status,
+        outcome=TaskInterventionOutcome.APPLIED,
+    )
+
+    _commit_or_conflict(session)
+    session.refresh(task)
+    return TaskRead.model_validate(task)
+
+
+def _resolve_broadcast_status_filter(payload: TaskCommandBroadcastRequest) -> TaskStatus | None:
+    if payload.status is not None:
+        return payload.status
+    if payload.task_ids is None:
+        return TaskStatus.RUNNING
+    return None
+
+
+def _list_broadcast_target_task_ids(
+    session: Session,
+    *,
+    payload: TaskCommandBroadcastRequest,
+    status_filter: TaskStatus | None,
+) -> list[int]:
+    statement = select(cast(Any, Task.id)).where(Task.project_id == payload.project_id)
+    if payload.task_ids is not None:
+        statement = statement.where(cast(Any, Task.id).in_(payload.task_ids))
+    if status_filter is not None:
+        statement = statement.where(Task.status == status_filter.value)
+    statement = statement.order_by(cast(Any, Task.id).asc()).limit(payload.limit)
+    task_ids = [int(task_id) for task_id in session.exec(statement).all()]
+    if payload.task_ids is not None:
+        order = {task_id: index for index, task_id in enumerate(payload.task_ids)}
+        task_ids.sort(key=lambda task_id: order.get(task_id, len(order)))
+    return task_ids
 
 
 @router.get(
@@ -281,10 +592,23 @@ def create_task(payload: TaskCreate, session: DbSession) -> TaskRead:
     _ensure_assignee_is_valid(session, payload.project_id, payload.assignee_agent_id)
     _ensure_parent_task_is_valid(session, payload.project_id, payload.parent_task_id)
 
-    task = Task(**payload.model_dump(mode="python"))
+    try:
+        validate_initial_status(payload.status)
+    except InvalidTaskTransitionError as exc:
+        _raise_invalid_transition(str(exc))
+
+    task_data = payload.model_dump(mode="python", exclude={"trace_id", "actor", "run_id"})
+    task = Task(**task_data)
     session.add(task)
     _flush_or_conflict(session)
-    _append_task_status_event(session, task=task, previous_status=None)
+    _append_task_status_event(
+        session,
+        task=task,
+        previous_status=None,
+        trace_id=payload.trace_id,
+        run_id=payload.run_id,
+        actor=payload.actor,
+    )
     _commit_or_conflict(session)
     session.refresh(task)
     return TaskRead.model_validate(task)
@@ -316,12 +640,24 @@ def get_task(task_id: int, session: DbSession) -> TaskRead:
 )
 def update_task(task_id: int, payload: TaskUpdate, session: DbSession) -> TaskRead:
     task = _get_task_or_404(session, task_id)
-    previous_status = task.status
+    previous_status = _to_task_status(task.status)
     update_data = payload.model_dump(exclude_unset=True, mode="python")
-    requested_status = update_data.get("status")
-    status_changed = isinstance(requested_status, TaskStatus) and requested_status.value != str(
-        previous_status
-    )
+    trace_id = update_data.pop("trace_id", None)
+    actor = update_data.pop("actor", None)
+    run_id = update_data.pop("run_id", None)
+
+    requested_status_raw = update_data.get("status")
+    requested_status = _to_task_status(requested_status_raw) if requested_status_raw else None
+    if requested_status is not None:
+        update_data["status"] = requested_status
+
+    status_changed = False
+    if requested_status is not None and requested_status != previous_status:
+        status_changed = True
+        try:
+            ensure_status_transition(previous_status, requested_status)
+        except InvalidTaskTransitionError as exc:
+            _raise_invalid_transition(str(exc))
 
     if "assignee_agent_id" in update_data:
         _ensure_assignee_is_valid(session, task.project_id, update_data["assignee_agent_id"])
@@ -336,12 +672,181 @@ def update_task(task_id: int, payload: TaskUpdate, session: DbSession) -> TaskRe
     for field_name, value in update_data.items():
         setattr(task, field_name, value)
     task.updated_at = utc_now()
+    task.version += 1
     if status_changed:
-        _append_task_status_event(session, task=task, previous_status=previous_status)
+        _append_task_status_event(
+            session,
+            task=task,
+            previous_status=previous_status,
+            trace_id=trace_id,
+            run_id=run_id,
+            actor=actor,
+        )
 
     _commit_or_conflict(session)
     session.refresh(task)
     return TaskRead.model_validate(task)
+
+
+@router.post(
+    "/broadcast/{command}",
+    response_model=TaskCommandBroadcastResponse,
+    responses=cast(
+        dict[int | str, dict[str, Any]],
+        error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_ENTITY),
+    ),
+)
+def broadcast_task_command(
+    command: TaskCommand,
+    payload: TaskCommandBroadcastRequest,
+    session: DbSession,
+) -> TaskCommandBroadcastResponse:
+    _require_project(session, payload.project_id)
+    status_filter = _resolve_broadcast_status_filter(payload)
+    task_ids = _list_broadcast_target_task_ids(
+        session,
+        payload=payload,
+        status_filter=status_filter,
+    )
+    command_payload = TaskCommandRequest(
+        trace_id=payload.trace_id,
+        actor=payload.actor,
+        run_id=payload.run_id,
+        expected_version=payload.expected_version,
+    )
+
+    items: list[TaskCommandBroadcastItemResult] = []
+    applied_count = 0
+    for task_id in task_ids:
+        previous_status: str | None = None
+        try:
+            task = _get_task_or_404(session, task_id)
+            previous_status = _to_task_status(task.status).value
+            updated_task = _apply_task_command(
+                session,
+                task_id=task_id,
+                command=command,
+                payload=command_payload,
+                source=TaskInterventionSource.BROADCAST,
+            )
+            applied_count += 1
+            items.append(
+                TaskCommandBroadcastItemResult(
+                    task_id=task_id,
+                    outcome=TaskInterventionOutcome.APPLIED,
+                    previous_status=previous_status,
+                    status=updated_task.status,
+                    version=updated_task.version,
+                )
+            )
+        except ApiException as exc:
+            current_task = session.get(Task, task_id)
+            current_status = None
+            current_version = None
+            if current_task is not None:
+                current_status = _to_task_status(current_task.status).value
+                current_version = current_task.version
+            outcome = (
+                TaskInterventionOutcome.CONFLICT
+                if exc.status_code == status.HTTP_409_CONFLICT
+                else TaskInterventionOutcome.REJECTED
+            )
+            items.append(
+                TaskCommandBroadcastItemResult(
+                    task_id=task_id,
+                    outcome=outcome,
+                    previous_status=previous_status or current_status,
+                    status=current_status,
+                    version=current_version,
+                    error_code=exc.code,
+                    error_message=exc.message,
+                )
+            )
+
+    failed_count = len(items) - applied_count
+    return TaskCommandBroadcastResponse(
+        command=command,
+        project_id=payload.project_id,
+        status_filter=status_filter,
+        total_targets=len(task_ids),
+        applied_count=applied_count,
+        failed_count=failed_count,
+        items=items,
+    )
+
+
+@router.post(
+    "/{task_id}/pause",
+    response_model=TaskRead,
+    responses=cast(
+        dict[int | str, dict[str, Any]],
+        error_response_docs(
+            status.HTTP_404_NOT_FOUND,
+            status.HTTP_409_CONFLICT,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+        ),
+    ),
+)
+def pause_task(task_id: int, payload: TaskCommandRequest, session: DbSession) -> TaskRead:
+    return _apply_task_command(session, task_id=task_id, command=TaskCommand.PAUSE, payload=payload)
+
+
+@router.post(
+    "/{task_id}/resume",
+    response_model=TaskRead,
+    responses=cast(
+        dict[int | str, dict[str, Any]],
+        error_response_docs(
+            status.HTTP_404_NOT_FOUND,
+            status.HTTP_409_CONFLICT,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+        ),
+    ),
+)
+def resume_task(task_id: int, payload: TaskCommandRequest, session: DbSession) -> TaskRead:
+    return _apply_task_command(
+        session,
+        task_id=task_id,
+        command=TaskCommand.RESUME,
+        payload=payload,
+    )
+
+
+@router.post(
+    "/{task_id}/retry",
+    response_model=TaskRead,
+    responses=cast(
+        dict[int | str, dict[str, Any]],
+        error_response_docs(
+            status.HTTP_404_NOT_FOUND,
+            status.HTTP_409_CONFLICT,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+        ),
+    ),
+)
+def retry_task(task_id: int, payload: TaskCommandRequest, session: DbSession) -> TaskRead:
+    return _apply_task_command(session, task_id=task_id, command=TaskCommand.RETRY, payload=payload)
+
+
+@router.post(
+    "/{task_id}/cancel",
+    response_model=TaskRead,
+    responses=cast(
+        dict[int | str, dict[str, Any]],
+        error_response_docs(
+            status.HTTP_404_NOT_FOUND,
+            status.HTTP_409_CONFLICT,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+        ),
+    ),
+)
+def cancel_task(task_id: int, payload: TaskCommandRequest, session: DbSession) -> TaskRead:
+    return _apply_task_command(
+        session,
+        task_id=task_id,
+        command=TaskCommand.CANCEL,
+        payload=payload,
+    )
 
 
 @router.delete(
