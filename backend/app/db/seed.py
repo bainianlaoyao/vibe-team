@@ -4,11 +4,13 @@ from pathlib import Path
 
 from sqlmodel import Session, select
 
+from app.db.enums import AgentStatus, TaskStatus
 from app.db.models import Agent, Event, Project, Task
 
 DEFAULT_PROJECT_NAME = "BeeBeeBrain Demo Project"
 DEFAULT_AGENT_NAME = "Planner Agent"
 DEFAULT_TASK_TITLE = "Bootstrap workspace"
+SEED_EVENT_TYPE = "system.seeded"
 
 
 def seed_initial_data(session: Session, *, project_root: Path | None = None) -> None:
@@ -39,7 +41,7 @@ def seed_initial_data(session: Session, *, project_root: Path | None = None) -> 
             model_name="gpt-4.1-mini",
             initial_persona_prompt="You are the default planning agent for BeeBeeBrain.",
             enabled_tools_json=["list_path_tool", "read_file_tool", "search_project_files_tool"],
-            status="active",
+            status=AgentStatus.ACTIVE,
         )
         session.add(agent)
         session.flush()
@@ -58,7 +60,7 @@ def seed_initial_data(session: Session, *, project_root: Path | None = None) -> 
             project_id=project.id,
             title=DEFAULT_TASK_TITLE,
             description="Initialize database baseline and verify migrations.",
-            status="todo",
+            status=TaskStatus.TODO,
             priority=1,
             assignee_agent_id=agent.id if agent is not None else None,
         )
@@ -68,7 +70,7 @@ def seed_initial_data(session: Session, *, project_root: Path | None = None) -> 
         session.exec(
             select(Event)
             .where(Event.project_id == project.id)
-            .where(Event.event_type == "system.seeded")
+            .where(Event.event_type == SEED_EVENT_TYPE)
         ).first()
         if project.id is not None
         else None
@@ -77,7 +79,7 @@ def seed_initial_data(session: Session, *, project_root: Path | None = None) -> 
         session.add(
             Event(
                 project_id=project.id,
-                event_type="system.seeded",
+                event_type=SEED_EVENT_TYPE,
                 payload_json={
                     "seed_version": 1,
                     "project_name": project.name,
