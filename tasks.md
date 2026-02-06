@@ -77,31 +77,31 @@ Phase 1 验收：
 - Owner: Data
 - 依赖：Phase 1 完成
 - 串行任务：
-1. [ ] 完整建模：`task_dependencies`, `task_runs`, `inbox_items`, `documents`, `comments`, `api_usage_daily`。
-2. [ ] 建立 repository 层（分页、过滤、乐观锁字段）。
-3. [ ] 统一枚举与状态常量，避免字符串散落。
-4. [ ] 增加模型级约束测试与唯一索引测试。
+1. [x] 完整建模：`task_dependencies`, `task_runs`, `inbox_items`, `documents`, `comments`, `api_usage_daily`。
+2. [x] 建立 repository 层（分页、过滤、乐观锁字段）。
+3. [x] 统一枚举与状态常量，避免字符串散落。
+4. [x] 增加模型级约束测试与唯一索引测试。
 
 ### 并行任务 P2-B：任务与 Agent API
 
 - Owner: Backend API
 - 依赖：P2-A step 1
 - 串行任务：
-1. [ ] 实现 `agents` 增删改查接口。
-2. [ ] 实现 `tasks` 增删改查接口（含优先级、负责人、依赖关系）。
-3. [ ] 实现参数校验与统一错误码返回。
-4. [ ] 补齐 OpenAPI 示例请求/响应。
-5. [ ] 编写集成测试（正常流 + 非法参数流）。
+1. [x] 实现 `agents` 增删改查接口。
+2. [x] 实现 `tasks` 增删改查接口（含优先级、负责人、依赖关系）。
+3. [x] 实现参数校验与统一错误码返回。
+4. [x] 补齐 OpenAPI 示例请求/响应。
+5. [x] 编写集成测试（正常流 + 非法参数流）。
 
-### 并行任务 P2-C：收件箱 API 与审查动作
+### 并行任务 P2-C：收件箱 API 与用户确认动作
 
 - Owner: Backend API
 - 依赖：P2-A step 1
 - 串行任务：
-1. [ ] 实现 `GET /inbox` 与分类筛选。
-2. [ ] 实现 `resolve`、`escalate`、`reopen` 动作接口。
-3. [ ] 将审查动作写入 `events` 审计表。
-4. [ ] 编写审查流集成测试。
+1. [ ] 实现 `GET /inbox` 与 `item_type/status` 筛选（`await_user_input/task_completed`）。
+2. [ ] 实现 `POST /inbox/{item_id}/close`，支持携带 `user_input`。
+3. [ ] 将收件箱动作写入 `events`（`inbox.item.created`、`inbox.item.closed`、可选 `user.input.submitted`）。
+4. [ ] 编写收件箱集成测试（等待用户输入流、任务完成确认流）。
 
 ### 并行任务 P2-D：事件流推送通道
 
@@ -115,7 +115,7 @@ Phase 1 验收：
 
 Phase 2 验收：
 1. 前端可通过 API 完成任务和 Agent 的基本管理。
-2. 审查动作可落库并回放。
+2. 收件箱可完成“等待用户输入/任务完成通知”的创建、关闭与回放。
 3. 事件流可稳定推送状态变化。
 
 ---
@@ -250,7 +250,7 @@ Phase 4 验收：
 3. [ ] 定义成本超阈值告警策略。
 4. [ ] 编写统计正确性测试。
 
-### 并行任务 P5-C：卡死检测与风险自动入箱
+### 并行任务 P5-C：卡死检测与用户确认入箱
 
 - Owner: Runtime
 - 依赖：P3-C step 2
@@ -258,7 +258,7 @@ Phase 4 验收：
 1. [ ] 实现无输出超时检测。
 2. [ ] 实现重复动作哈希检测。
 3. [ ] 实现错误速率阈值检测。
-4. [ ] 命中阈值自动生成 `inbox_items` 并标记 `blocked/risk`。
+4. [ ] 命中阈值自动生成 `inbox_items(item_type=await_user_input)` 并附带诊断信息。
 5. [ ] 编写误报/漏报评估测试。
 
 ### 并行任务 P5-D：安全审计与故障演练
@@ -328,4 +328,5 @@ Phase 6 验收：
 1. 优先保证数据模型与状态机正确性（先正确，再并发）。
 2. 工具层与观测层尽早并行，避免后期排障成本爆炸。
 3. 每个 Phase 结束前必须执行一次“全链路冒烟”。
+
 

@@ -11,7 +11,7 @@
 1. 支持单项目内多 Agent 并行执行任务，并提供可干预的状态机。
 2. 支持任务流转：待办 -> 进行中 -> 待审查 -> 已完成/失败/阻塞。
 3. 支持 Agent 对本地知识库的自主探索（列目录、读文件、关键字搜索）。
-4. 支持收件箱机制（需要人工确认、风险告警、执行异常）。
+4. 支持收件箱机制（仅处理“等待用户输入”和“任务完成通知”）。
 5. 支持基础观测能力（日志、事件流、API 使用统计、卡死检测）。
 
 ### 1.2 MVP 非目标
@@ -24,7 +24,7 @@
 
 1. 单进程部署，分层设计：MVP 用一个 Python 服务进程，内部严格模块化，后续可拆分。
 2. SQLite + 文件系统双存储：结构化状态入库，原始知识与产物留在文件系统。
-3. 事件优先：任务状态变化、Agent 输出、审查动作都以事件形式记录，支持追溯。
+3. 事件优先：任务状态变化、Agent 输出、收件箱创建/关闭都以事件形式记录，支持追溯。
 4. 可恢复执行：每次运行有 `run_id`，失败后可基于持久化状态重试。
 5. 先可观测再扩展：关键路径必须有日志、指标和告警点，避免“黑盒 Agent”。
 
@@ -48,8 +48,8 @@
 - 目录列举、文件读取、关键字搜索。
 
 5. 收件箱与反馈层（Inbox/Review）
-- 归集“待审查、阻塞、风险”事件。
-- 人工反馈回写任务与后续动作。
+- 归集“等待用户输入”和“任务完成通知”项。
+- 用户通过关闭收件箱项提交输入，回写任务后续动作。
 
 6. 监控与审计层（Observability）
 - 结构化日志、运行指标、事件审计流水。
@@ -136,30 +136,36 @@ backend/
 2. 首版表结构已在 `app/db/models.py` 与 Alembic revision 中对齐：`projects`、`agents`、`tasks`、`events`。
 3. 提供 `uv run python -m app.db.cli init` 初始化命令（建库目录 + 迁移 + 种子）。
 
+实现落地（P2-A，2026-02-06）：
+1. 扩展领域表结构并新增 revision：`task_dependencies`、`task_runs`、`inbox_items`、`documents`、`comments`、`api_usage_daily`。
+2. 在可变实体引入 `version` 乐观锁字段，并补齐唯一索引与检查约束（含依赖去重、文档路径去重、usage 维度去重）。
+3. 新增 repository 层：`TaskRepository`、`InboxRepository`、`DocumentRepository`，统一分页、过滤与乐观锁更新。
+4. 回归测试覆盖 schema、约束、唯一索引与 repository 行为。
+
 ### 5.1 核心实体
 1. `projects`
-- `id`, `name`, `root_path`, `created_at`, `updated_at`
+- `id`, `name`, `root_path`, `created_at`, `updated_at`, `version`
 
 2. `agents`
-- `id`, `project_id`, `name`, `role`, `model_provider`, `model_name`, `initial_persona_prompt`, `enabled_tools_json`, `status`
+- `id`, `project_id`, `name`, `role`, `model_provider`, `model_name`, `initial_persona_prompt`, `enabled_tools_json`, `status`, `version`
 
 3. `tasks`
-- `id`, `project_id`, `title`, `description`, `status`, `priority`, `assignee_agent_id`, `parent_task_id`, `created_at`, `updated_at`, `due_at`
+- `id`, `project_id`, `title`, `description`, `status`, `priority`, `assignee_agent_id`, `parent_task_id`, `created_at`, `updated_at`, `due_at`, `version`
 
 4. `task_dependencies`
 - `id`, `task_id`, `depends_on_task_id`, `dependency_type`（finish_to_start 等）
 
 5. `task_runs`
-- `id`, `task_id`, `agent_id`, `run_status`, `attempt`, `started_at`, `ended_at`, `error_code`, `error_message`, `token_in`, `token_out`, `cost_usd`
+- `id`, `task_id`, `agent_id`, `run_status`, `attempt`, `started_at`, `ended_at`, `error_code`, `error_message`, `token_in`, `token_out`, `cost_usd`, `version`
 
 6. `inbox_items`
-- `id`, `project_id`, `source_type`, `source_id`, `category`（needs_review/blocked/risk）, `title`, `content`, `status`, `created_at`, `resolved_at`, `resolver`
+- `id`, `project_id`, `source_type`, `source_id`, `category`（needs_review/blocked/risk）, `title`, `content`, `status`（open/resolved/escalated）, `created_at`, `resolved_at`, `resolver`, `version`
 
 7. `documents`
 - `id`, `project_id`, `path`, `title`, `doc_type`, `is_mandatory`, `tags_json`, `version`, `updated_at`
 
 8. `comments`
-- `id`, `document_id`, `task_id`, `anchor`, `comment_text`, `author`, `status`, `created_at`
+- `id`, `document_id`, `task_id`, `anchor`, `comment_text`, `author`, `status`, `created_at`, `version`
 
 9. `events`
 - `id`, `project_id`, `event_type`, `payload_json`, `created_at`, `trace_id`
@@ -183,21 +189,25 @@ backend/
 ### 6.1 Agent 管理
 1. `GET /api/v1/agents`
 2. `POST /api/v1/agents`
-3. `PATCH /api/v1/agents/{agent_id}`
+3. `GET /api/v1/agents/{agent_id}`
+4. `PATCH /api/v1/agents/{agent_id}`
+5. `DELETE /api/v1/agents/{agent_id}`
 
 ### 6.2 任务管理
 1. `GET /api/v1/tasks`
 2. `POST /api/v1/tasks`
-3. `PATCH /api/v1/tasks/{task_id}`
-4. `POST /api/v1/tasks/{task_id}/run`
-5. `POST /api/v1/tasks/{task_id}/pause`
-6. `POST /api/v1/tasks/{task_id}/resume`
-7. `POST /api/v1/tasks/{task_id}/retry`
+3. `GET /api/v1/tasks/{task_id}`
+4. `PATCH /api/v1/tasks/{task_id}`
+5. `DELETE /api/v1/tasks/{task_id}`
+6. `POST /api/v1/tasks/{task_id}/run`（P3）
+7. `POST /api/v1/tasks/{task_id}/pause`（P3）
+8. `POST /api/v1/tasks/{task_id}/resume`（P3）
+9. `POST /api/v1/tasks/{task_id}/retry`（P3）
 
-### 6.3 收件箱与审查
+### 6.3 收件箱与用户确认
 1. `GET /api/v1/inbox`
-2. `POST /api/v1/inbox/{item_id}/resolve`
-3. `POST /api/v1/inbox/{item_id}/escalate`
+2. `POST /api/v1/inbox/{item_id}/close`（支持 `user_input`）
+3. `await_user_input` 项关闭时必须提供 `user_input`，`task_completed` 项可直接关闭。
 
 ### 6.4 文档与知识
 1. `GET /api/v1/docs`
@@ -209,6 +219,24 @@ backend/
 ### 6.5 事件流
 1. `GET /api/v1/events/stream`（SSE 或 WebSocket）
 2. `GET /api/v1/runs/{run_id}/logs`
+
+### 6.6 统一错误响应
+1. 全部错误接口统一返回：
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Request validation failed.",
+    "issues": [
+      {
+        "field": "body.title",
+        "message": "String should have at least 1 character"
+      }
+    ]
+  }
+}
+```
+2. 典型错误码：`VALIDATION_ERROR`、`PROJECT_NOT_FOUND`、`AGENT_NOT_FOUND`、`TASK_NOT_FOUND`、`INVALID_ASSIGNEE`、`INVALID_TASK_DEPENDENCY`、`TASK_HAS_DEPENDENTS`。
 
 ## 7. Agent 上下文与工具调用设计
 
@@ -241,7 +269,7 @@ backend/
 5. 卡死检测：
 - 超时无输出。
 - 重复动作哈希命中阈值。
-- 连续错误率超过阈值自动转 `blocked` 并生成 inbox 项。
+- 连续错误率超过阈值自动生成 `await_user_input` 收件箱项并附带诊断上下文。
 
 ## 9. 安全与治理
 
@@ -267,13 +295,13 @@ backend/
 - 任务吞吐、平均完成时长、失败率、阻塞率、重试率、token 与成本。
 
 3. 事件审计
-- 所有状态变更写 `events` 表，支持回放与问题复盘。
+- 所有状态变更写 `events` 表，收件箱最小事件为 `inbox.item.created` 与 `inbox.item.closed`（可选 `user.input.submitted`），支持回放与问题复盘。
 
 ## 11. 测试与质量门禁
 
 1. 单元测试：状态机迁移、路径校验、工具参数校验、重试策略。
 2. 集成测试：API + SQLite + 文件系统 + tool loop。
-3. 端到端测试：从建任务到完成/审查/干预完整链路。
+3. 端到端测试：从建任务到完成/用户输入/干预完整链路。
 4. 质量门禁（Phase 1 当前实现）：
 - 本地统一入口：`cd backend && make quality`，执行 `ruff + black + mypy + pytest`。
 - 提交前钩子：根目录 `.pre-commit-config.yaml` 执行 backend 的 `ruff/black/mypy`。
