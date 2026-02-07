@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI
 
 from app.api.agents import router as agents_router
+from app.api.debug import router as debug_router
 from app.api.errors import register_exception_handlers
 from app.api.events import router as events_router
 from app.api.health import router as health_router
@@ -15,6 +16,7 @@ from app.api.logs import router as logs_router
 from app.api.metrics import router as metrics_router
 from app.api.tasks import router as tasks_router
 from app.api.tools import router as tools_router
+from app.core.auth import LocalApiKeyMiddleware
 from app.core.config import get_settings
 from app.core.logging import TraceContextMiddleware, configure_logging
 from app.db.engine import dispose_engine, get_engine
@@ -52,7 +54,9 @@ def create_app() -> FastAPI:
     )
 
     register_exception_handlers(app)
+    app.add_middleware(LocalApiKeyMiddleware, api_key=settings.local_api_key)
     app.add_middleware(TraceContextMiddleware)
+    app.include_router(debug_router)
     app.include_router(health_router)
     app.include_router(agents_router, prefix="/api/v1")
     app.include_router(events_router, prefix="/api/v1")

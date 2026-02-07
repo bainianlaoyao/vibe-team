@@ -57,3 +57,9 @@ def test_load_settings_parses_stuck_detector_thresholds(monkeypatch: MonkeyPatch
     assert settings.stuck_repeat_threshold == 0.75
     assert settings.stuck_error_rate_threshold == 0.66
     assert settings.stuck_scan_interval_s == 30
+
+
+def test_load_settings_reads_local_api_key(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setenv("LOCAL_API_KEY", "probe-key")
+    settings = load_settings()
+    assert settings.local_api_key == "probe-key"

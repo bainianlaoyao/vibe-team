@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
@@ -14,6 +15,8 @@ from typing import Any
 
 from sqlmodel import Session, SQLModel
 
+from app.core.config import get_settings
+from app.core.logging import configure_logging
 from app.db.engine import create_engine_from_url
 from app.db.enums import AgentStatus, TaskRunStatus, TaskStatus
 from app.db.models import Agent, Project, Task
@@ -430,6 +433,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = _build_parser().parse_args()
+    os.environ["LOG_LEVEL"] = "WARNING"
+    get_settings.cache_clear()
+    configure_logging(get_settings())
     json_path = Path(args.json_report_path)
     markdown_path = Path(args.markdown_report_path)
 

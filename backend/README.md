@@ -56,6 +56,7 @@ cd backend
 - `LOG_FILE`: 可选日志文件输出路径（默认不写文件）
 - `LOG_DB_ENABLED`: 预留 DB 日志写入开关（默认 `false`）
 - `LOG_DB_MIN_LEVEL`: 预留 DB 日志最小级别（默认 `WARNING`）
+- `LOCAL_API_KEY`: 本地最小鉴权开关（设置后 `/api/v1/*` 需要 `X-API-Key` 或 `Authorization: Bearer <key>`）
 - `COST_ALERT_THRESHOLD_USD`: 日成本告警阈值（`<=0` 关闭告警，默认 `0`）
 - `STUCK_IDLE_TIMEOUT_S`: 无输出超时阈值（秒，默认 `600`）
 - `STUCK_REPEAT_THRESHOLD`: 重复动作阈值（0-1，默认 `0.8`）
@@ -164,6 +165,14 @@ uv run python scripts/failure_recovery_probe.py --fail-on-error
 cd backend
 make freeze-gate
 ```
+
+## 极简调试面板（Phase 6）
+
+- 入口：`GET /debug/panel`
+- 定位：仅用于验收/联调，不作为正式产品 UI
+- 可配置项：`Base URL`、`Project ID`、`Auth Mode`、`Token/API Key`
+- 功能：任务列表与动作按钮、`request_input`、收件箱关闭输入、事件流查看、一键验收链路按钮
+- 联调记录：`docs/reports/phase6/panel_integration_notes.md`
 
 ## 故障恢复与回滚
 

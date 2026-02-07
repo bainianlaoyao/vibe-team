@@ -29,6 +29,7 @@ class Settings(BaseModel):
     log_file: str | None = Field(default=None)
     log_db_enabled: bool = Field(default=False)
     log_db_min_level: str = Field(default="WARNING")
+    local_api_key: str | None = Field(default=None)
     cost_alert_threshold_usd: Decimal = Field(default=Decimal("0"))
     stuck_idle_timeout_s: int = Field(default=600, ge=1)
     stuck_repeat_threshold: float = Field(default=0.8, ge=0, le=1)
@@ -104,6 +105,7 @@ def load_settings() -> Settings:
         log_file=os.getenv("LOG_FILE"),
         log_db_enabled=_to_bool(os.getenv("LOG_DB_ENABLED"), default=False),
         log_db_min_level=os.getenv("LOG_DB_MIN_LEVEL", "WARNING"),
+        local_api_key=os.getenv("LOCAL_API_KEY"),
         cost_alert_threshold_usd=_to_decimal(
             os.getenv("COST_ALERT_THRESHOLD_USD"),
             default=Decimal("0"),

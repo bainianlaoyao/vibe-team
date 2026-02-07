@@ -293,6 +293,14 @@ backend/
 4. 增加冻结前必跑入口：`backend/Makefile` 新增 `failure-recovery-probe` 与 `freeze-gate` 目标。
 5. CI 新增回归作业：`.github/workflows/backend-quality.yml` 增加 `failure-recovery-regression` job，执行探针并上传 artifact。
 
+实现落地（P6-C，2026-02-07）：
+1. 新增极简调试面板：`GET /debug/panel`（`backend/app/api/debug.py` + `backend/app/static/debug_panel.html`），支持任务动作、`request_input`、收件箱关闭与事件流查看。
+2. 新增最小鉴权中间件：`backend/app/core/auth.py`，当配置 `LOCAL_API_KEY` 时，对 `/api/v1/*` 请求校验 `X-API-Key` 或 `Authorization: Bearer`。
+3. 调试面板支持环境配置（`Base URL/Project ID/Auth Mode/Token`）并提供“一键验收链路”按钮，便于联调复现。
+4. 增加鉴权与面板回归：`backend/tests/test_local_api_key_auth.py`，覆盖未授权拒绝、两种鉴权头放行、面板访问可用性。
+5. 面板定位明确为验收工具：在 `backend/README.md` 中标注“非正式产品 UI”，避免误作为产品界面演进。
+6. 联调记录归档：`docs/reports/phase6/panel_integration_notes.md`，沉淀链路执行结果与非阻塞问题。
+
 ### 5.1 核心实体
 1. `projects`
 - `id`, `name`, `root_path`, `created_at`, `updated_at`, `version`
