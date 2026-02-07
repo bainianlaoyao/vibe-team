@@ -192,6 +192,15 @@ backend/
 5. 新增 Prompt 模板目录：`app/agents/prompt_templates/`（首批 `default__default.tmpl`、`phase4__default.tmpl`）。
 6. 新增上下文回归：`tests/test_context_builder.py`，校验关键约束包含、模板回退与预算裁剪上限。
 
+实现落地（P4-C，2026-02-07）：
+1. 新增命令 API：`app/api/tools.py`，提供 `POST /api/v1/tools/finish_task|block_task|request_input`。
+2. 工具写回统一走 HTTP 命令 API，不允许工具层直连数据库更新任务状态。
+3. 新增幂等检查：按 `tool + task_id + idempotency_key` 回放既有成功结果，避免重复写操作。
+4. 新增工具审计事件：`tool.command.audit`，记录 `outcome/applied|rejected`、错误码与响应快照。
+5. 新增用户输入请求闭环：`request_input` 自动创建 `inbox_items(item_type=await_user_input)` 并写 `inbox.item.created` 事件。
+6. 新增 CLI 工具封装：`app/tools/cli_tools.py`，以 HTTP 客户端形式暴露 `finish_task/block_task/request_input`。
+7. 新增集成测试：`tests/test_cli_tools.py`，模拟 CLI 调用命令 API 并校验状态写回、幂等命中与审计事件。
+
 ### 5.1 核心实体
 1. `projects`
 - `id`, `name`, `root_path`, `created_at`, `updated_at`, `version`

@@ -11,6 +11,7 @@ from app.api.events import router as events_router
 from app.api.health import router as health_router
 from app.api.inbox import router as inbox_router
 from app.api.tasks import router as tasks_router
+from app.api.tools import router as tools_router
 from app.core.config import get_settings
 from app.db.engine import dispose_engine, get_engine
 
@@ -38,6 +39,7 @@ def create_app() -> FastAPI:
     app.include_router(events_router, prefix="/api/v1")
     app.include_router(inbox_router, prefix="/api/v1")
     app.include_router(tasks_router, prefix="/api/v1")
+    app.include_router(tools_router, prefix="/api/v1")
     return app
 
 

@@ -215,10 +215,10 @@ Phase 3 验收：
 - Owner: Backend API
 - 依赖：P3-A step 3, P3-D step 1
 - 串行任务：
-1. [ ] 封装 CLI 专用指令工具（`finish_task`, `block_task`, `request_input`）。
-2. [ ] 工具实现：通过 HTTP 调用后端命令 API 回写状态（禁止直连 DB）。
-3. [ ] 实现调用幂等性检查（Idempotency Key）与操作审计。
-4. [ ] 编写工具交互集成测试（模拟 CLI 触发后端状态变更）。
+1. [x] 封装 CLI 专用指令工具（`finish_task`, `block_task`, `request_input`）。
+2. [x] 工具实现：通过 HTTP 调用后端命令 API 回写状态（禁止直连 DB）。
+3. [x] 实现调用幂等性检查（Idempotency Key）与操作审计。
+4. [x] 编写工具交互集成测试（模拟 CLI 触发后端状态变更）。
 
 ### 并行任务 P4-D：计划视图同步
 
