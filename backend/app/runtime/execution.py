@@ -7,11 +7,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Protocol
 from uuid import uuid4
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.core.logging import bind_log_context, get_logger
 from app.db.enums import TASK_RUN_TERMINAL_STATUSES, TaskRunStatus
-from app.db.models import TaskRun, utc_now
+from app.db.models import Event, Task, TaskRun, utc_now
 from app.db.repositories import (
     OptimisticLockError,
     Pagination,
@@ -19,6 +19,7 @@ from app.db.repositories import (
     TaskRunNotFoundError,
     TaskRunRepository,
 )
+from app.events.schemas import RUN_LOG_EVENT_TYPE, RunLogLevel
 from app.llm.contracts import LLMClient, LLMRequest, LLMResponse
 from app.llm.errors import LLMProviderError
 from app.llm.usage import record_usage_for_run
@@ -35,6 +36,7 @@ DEFAULT_RECOVERY_ACTOR = "recovery"
 FAILURE_POINT_BEFORE_LLM = "runtime.before_llm"
 FAILURE_POINT_AFTER_LLM = "runtime.after_llm"
 _MAX_ERROR_MESSAGE_LENGTH = 512
+_MAX_RUN_OUTPUT_LOG_LENGTH = 4000
 logger = get_logger("bbb.runtime.execution")
 
 
@@ -409,12 +411,20 @@ class TaskRunRuntimeService:
             token_out=response.usage.token_out,
             cost_usd=str(response.usage.cost_usd),
         )
-        return repository.mark_succeeded(
+        updated = repository.mark_succeeded(
             run_id=run_id,
             expected_version=latest.version,
             trace_id=trace_id,
             actor=actor,
         )
+        self._append_result_log_event(
+            session=session,
+            task_id=updated.task_id,
+            run_id=run_id,
+            trace_id=trace_id,
+            output_text=response.text,
+        )
+        return updated
 
     def _mark_failed(
         self,
@@ -488,6 +498,51 @@ class TaskRunRuntimeService:
             actor=actor,
         )
 
+    def _append_result_log_event(
+        self,
+        *,
+        session: Session,
+        task_id: int,
+        run_id: int,
+        trace_id: str | None,
+        output_text: str,
+    ) -> None:
+        normalized_output = _normalize_run_output(output_text)
+        if normalized_output is None:
+            return
+
+        project_id = session.exec(select(Task.project_id).where(Task.id == task_id)).first()
+        if project_id is None:
+            logger.warning(
+                "runtime.execute.output_log_skipped_missing_task",
+                task_id=task_id,
+                run_id=run_id,
+            )
+            return
+
+        session.add(
+            Event(
+                project_id=project_id,
+                event_type=RUN_LOG_EVENT_TYPE,
+                payload_json={
+                    "run_id": run_id,
+                    "task_id": task_id,
+                    "level": RunLogLevel.INFO.value,
+                    "message": normalized_output,
+                },
+                trace_id=trace_id,
+            )
+        )
+        try:
+            session.commit()
+        except Exception:
+            session.rollback()
+            logger.exception(
+                "runtime.execute.output_log_commit_failed",
+                task_id=task_id,
+                run_id=run_id,
+            )
+
 
 def _ensure_run_is_running(
     *,
@@ -530,6 +585,14 @@ def _normalize_error_message(value: str) -> str:
         return "Runtime execution failed."
     redacted = redact_sensitive_text(normalized)
     return redacted[:_MAX_ERROR_MESSAGE_LENGTH]
+
+
+def _normalize_run_output(value: str) -> str | None:
+    normalized = value.strip()
+    if not normalized:
+        return None
+    redacted = redact_sensitive_text(normalized)
+    return redacted[:_MAX_RUN_OUTPUT_LOG_LENGTH]
 
 
 def _to_task_run_status(value: TaskRunStatus | str) -> TaskRunStatus:

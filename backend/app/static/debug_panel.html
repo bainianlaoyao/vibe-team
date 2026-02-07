@@ -97,7 +97,7 @@
       font-size: 0.75rem;
       padding: 5px 7px;
     }
-    #eventsOutput, #statusOutput {
+    #eventsOutput, #statusOutput, #agentResultOutput {
       width: 100%;
       min-height: 160px;
       font-family: "Consolas", monospace;
@@ -108,6 +108,9 @@
     }
     #statusOutput {
       min-height: 80px;
+    }
+    #agentResultOutput {
+      min-height: 120px;
     }
   </style>
 </head>
@@ -137,6 +140,29 @@
         <button id="runChain">Run Acceptance Chain</button>
         <button id="refreshAll">Refresh Tasks + Inbox</button>
       </div>
+    </div>
+
+    <div class="card">
+      <h2>Agent Playground</h2>
+      <div class="grid">
+        <label>Prepared Task ID
+          <input id="playgroundTaskId" type="number" min="1" readonly />
+        </label>
+        <label>Prepared Agent ID
+          <input id="playgroundAgentId" type="number" min="1" readonly />
+        </label>
+        <label>Run README Path
+          <input id="playgroundReadmePath" readonly />
+        </label>
+        <label>Run Prompt
+          <textarea id="runPrompt" rows="3"></textarea>
+        </label>
+      </div>
+      <div class="actions" style="margin-top: 10px; margin-bottom: 8px;">
+        <button id="setupPlayground">Setup Agent Playground</button>
+        <button id="runPlaygroundTask" class="secondary">Run Playground Task</button>
+      </div>
+      <textarea id="agentResultOutput" readonly></textarea>
     </div>
 
     <div class="card">
@@ -204,11 +230,18 @@
       projectId: document.getElementById("projectId"),
       authMode: document.getElementById("authMode"),
       apiKey: document.getElementById("apiKey"),
+      playgroundTaskId: document.getElementById("playgroundTaskId"),
+      playgroundAgentId: document.getElementById("playgroundAgentId"),
+      playgroundReadmePath: document.getElementById("playgroundReadmePath"),
+      runPrompt: document.getElementById("runPrompt"),
+      agentResultOutput: document.getElementById("agentResultOutput"),
       tasksBody: document.getElementById("tasksBody"),
       inboxBody: document.getElementById("inboxBody"),
       eventsOutput: document.getElementById("eventsOutput"),
       statusOutput: document.getElementById("statusOutput"),
       saveConfig: document.getElementById("saveConfig"),
+      setupPlayground: document.getElementById("setupPlayground"),
+      runPlaygroundTask: document.getElementById("runPlaygroundTask"),
       runChain: document.getElementById("runChain"),
       refreshAll: document.getElementById("refreshAll"),
       loadTasks: document.getElementById("loadTasks"),
@@ -226,6 +259,11 @@
     function appendEvent(message) {
       el.eventsOutput.value += `${message}\n`;
       el.eventsOutput.scrollTop = el.eventsOutput.scrollHeight;
+    }
+
+    function appendAgentResult(message) {
+      el.agentResultOutput.value += `[${new Date().toISOString()}] ${message}\n`;
+      el.agentResultOutput.scrollTop = el.agentResultOutput.scrollHeight;
     }
 
     function readConfig() {
@@ -284,6 +322,79 @@
       return response;
     }
 
+    function defaultRunPromptForTask(taskId) {
+      const readmePath = (el.playgroundReadmePath.value || "").trim();
+      if (readmePath) {
+        return `请读取文件 ${readmePath} 的内容。仅返回文件内容本身，不要添加解释。`;
+      }
+      return `请执行任务 ${taskId}，并返回执行结果摘要。`;
+    }
+
+    async function fetchRunOutput(runId) {
+      const cfg = readConfig();
+      const response = await apiFetch("/api/v1/logs", {
+        params: {
+          project_id: cfg.projectId,
+          run_id: runId,
+          limit: 20,
+        },
+      });
+      const logs = await response.json();
+      if (!Array.isArray(logs) || logs.length === 0) return "";
+      return (logs[0].message || "").trim();
+    }
+
+    async function runTaskAndGetResult(taskId, promptText) {
+      const resolvedPrompt = (promptText || "").trim() || defaultRunPromptForTask(taskId);
+      const runResponse = await apiFetch(`/api/v1/tasks/${taskId}/run`, {
+        method: "POST",
+        body: JSON.stringify({
+          prompt: resolvedPrompt,
+          idempotency_key: `panel-run-${taskId}-${Date.now()}`,
+          trace_id: `debug-panel-run-${taskId}-${Date.now()}`,
+        }),
+      });
+      const runPayload = await runResponse.json();
+      const runId = runPayload.id;
+      const runStatus = runPayload.run_status;
+      const output = await fetchRunOutput(runId);
+      return { runId, runStatus, output };
+    }
+
+    async function setupAgentPlayground() {
+      const cfg = readConfig();
+      const response = await apiFetch("/debug/agent-playground/setup", {
+        method: "POST",
+        body: JSON.stringify({ project_id: cfg.projectId }),
+      });
+      const payload = await response.json();
+      el.playgroundTaskId.value = String(payload.task_id);
+      el.playgroundAgentId.value = String(payload.agent_id);
+      el.playgroundReadmePath.value = payload.project_playground_path || payload.workspace_playground_path || "";
+      el.runPrompt.value = payload.run_prompt || defaultRunPromptForTask(payload.task_id);
+      appendStatus(`agent playground prepared: task=${payload.task_id} agent=${payload.agent_id}`);
+      await loadTasks();
+    }
+
+    async function runPreparedPlaygroundTask() {
+      const taskId = Number(el.playgroundTaskId.value);
+      if (!taskId) {
+        appendStatus("please setup playground first");
+        return;
+      }
+      appendStatus(`running playground task ${taskId}`);
+      const result = await runTaskAndGetResult(taskId, el.runPrompt.value);
+      appendStatus(
+        `task ${taskId} run completed: run_id=${result.runId} status=${result.runStatus}`
+      );
+      if (result.output) {
+        appendAgentResult(`task ${taskId} output: ${result.output}`);
+      } else {
+        appendAgentResult(`task ${taskId} output: <empty>`);
+      }
+      await loadTasks();
+    }
+
     async function loadTasks() {
       const cfg = readConfig();
       const response = await apiFetch("/api/v1/tasks", { params: { project_id: cfg.projectId } });
@@ -301,6 +412,7 @@
               <button data-action="resume">resume</button>
               <button data-action="retry">retry</button>
               <button data-action="cancel">cancel</button>
+              <button data-action="run" class="secondary">run</button>
               <button data-action="request_input" class="secondary">request_input</button>
             </div>
           </td>
@@ -319,6 +431,16 @@
                     idempotency_key: `panel-request-input-${task.id}-${Date.now()}`,
                   }),
                 });
+              } else if (action === "run") {
+                const result = await runTaskAndGetResult(task.id, el.runPrompt.value);
+                appendStatus(
+                  `task ${task.id} run completed: run_id=${result.runId} status=${result.runStatus}`
+                );
+                if (result.output) {
+                  appendAgentResult(`task ${task.id} output: ${result.output}`);
+                } else {
+                  appendAgentResult(`task ${task.id} output: <empty>`);
+                }
               } else {
                 await apiFetch(`/api/v1/tasks/${task.id}/${action}`, {
                   method: "POST",
@@ -466,6 +588,20 @@
     }
 
     el.saveConfig.addEventListener("click", saveConfig);
+    el.setupPlayground.addEventListener("click", async () => {
+      try {
+        await setupAgentPlayground();
+      } catch (error) {
+        appendStatus(String(error));
+      }
+    });
+    el.runPlaygroundTask.addEventListener("click", async () => {
+      try {
+        await runPreparedPlaygroundTask();
+      } catch (error) {
+        appendStatus(String(error));
+      }
+    });
     el.runChain.addEventListener("click", runAcceptanceChain);
     el.refreshAll.addEventListener("click", async () => {
       await loadTasks();
@@ -480,6 +616,7 @@
     });
 
     loadConfig();
+    el.runPrompt.value = defaultRunPromptForTask(0);
     appendStatus("panel initialized; save config before first run if needed");
     loadTasks().catch((error) => appendStatus(String(error)));
     loadInbox().catch((error) => appendStatus(String(error)));

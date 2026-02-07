@@ -175,7 +175,9 @@ make freeze-gate
 - 入口：`GET /debug/panel`
 - 定位：仅用于验收/联调，不作为正式产品 UI
 - 可配置项：`Base URL`、`Project ID`、`Auth Mode`、`Token/API Key`
-- 功能：任务列表与动作按钮、`request_input`、收件箱关闭输入、事件流查看、一键验收链路按钮
+- 功能：任务列表动作（含 `run`）、`request_input`、收件箱关闭输入、事件流查看、一键验收链路按钮
+- Agent Playground：支持一键创建 `play_ground/README.md`（内容 `114514`）、测试 Agent、测试任务，并在面板直接执行任务获取输出结果
+- 准备接口：`POST /debug/agent-playground/setup`
 - 联调记录：`docs/reports/phase6/panel_integration_notes.md`
 
 ## 故障恢复与回滚

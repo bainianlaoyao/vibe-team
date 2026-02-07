@@ -23,8 +23,10 @@
 5. Phase 4 状态：`已完成并验收通过（4/4）`。
 6. Phase 5 状态：`已完成并验收通过（4/4）`。
 7. Phase 6 状态：`已完成并验收通过（3/3）`。
-8. 最近里程碑：
-`backend/` 已完成 API 调用器、失败恢复回归套件与极简调试面板闭环，并补齐开发环境启动自动迁移兜底（避免首次调试缺表）。
+8. Phase 7 状态：`待开始（0/5）` - 人机协作对话。
+9. Phase 8 状态：`待开始（0/3）` - 联调、验收与发布。
+10. 最近里程碑：
+`backend/` 已完成 API 调用器、失败恢复回归套件与极简调试面板闭环，并补齐开发环境启动自动迁移兜底（避免首次调试缺表）；调试面板已增强 Agent Playground（可执行任务并回显结果）。
 
 ---
 
@@ -359,15 +361,89 @@ Phase 6 验收：
 
 ---
 
-## Phase 7: 联调、验收与发布
+## Phase 7: 人机协作对话（Agent Conversation）
+
+目标：实现类 Claude Code 的即时对话体验——用户与 Agent 实时双向交互，Agent 执行过程透明可见，用户可随时介入。
+
+### 并行任务 P7-A：对话数据模型与基础 CRUD
+
+- Owner: Data + Backend API
+- 依赖：Phase 6 完成
+- 串行任务：
+1. [ ] 新增 `conversations`、`messages`、`conversation_sessions` 表及 Alembic 迁移。
+2. [ ] 新增 `ConversationRepository`、`MessageRepository`、`SessionRepository`。
+3. [ ] 新增对话管理 API：`app/api/conversations.py`（CRUD + 消息历史查询）。
+4. [ ] 新增回归测试：`tests/test_conversations_api.py`。
+
+### 并行任务 P7-B：WebSocket 实时通道
+
+- Owner: Realtime + Backend API
+- 依赖：P7-A step 2
+- 串行任务：
+1. [ ] 新增 WebSocket 端点：`app/api/ws_conversations.py`（`WS /ws/conversations/{id}`）。
+2. [ ] 实现消息协议：`user.message`、`assistant.chunk`、`user.interrupt`、`session.heartbeat` 等。
+3. [ ] 实现连接管理：心跳（30s）、断线检测（90s）、客户端标识。
+4. [ ] 新增 WebSocket 回归：`tests/test_ws_conversations.py`。
+
+### 并行任务 P7-C：流式 LLM 响应集成
+
+- Owner: LLM + Orchestration
+- 依赖：P7-B step 2
+- 串行任务：
+1. [ ] 扩展 `ClaudeCodeAdapter` 支持流式回调（`on_chunk`、`on_tool_call`、`on_complete`）。
+2. [ ] 新增 `ConversationExecutor`：协调 LLM 调用与 WebSocket 推送。
+3. [ ] 流式输出实时写入 `messages` 表并推送 WebSocket。
+4. [ ] 实现用户打断：收到 `user.interrupt` 时取消 LLM 请求。
+
+### 并行任务 P7-D：执行中交互与工具透明
+
+- Owner: Orchestration + Backend API
+- 依赖：P7-C step 2
+- 串行任务：
+1. [ ] Agent 调用工具时推送 `assistant.tool_call`（工具名、参数摘要）。
+2. [ ] 工具执行结果推送 `assistant.tool_result`。
+3. [ ] 实现 `request_input`：Agent 暂停并通过 WebSocket 向用户提问。
+4. [ ] 用户通过 `user.input_response` 回复后 Agent 继续执行。
+
+### 并行任务 P7-E：任务上下文继承与会话恢复
+
+- Owner: Orchestration
+- 依赖：P7-C step 3
+- 串行任务：
+1. [ ] 创建对话时可指定 `task_id`，自动注入任务描述、依赖摘要、执行历史。
+2. [ ] 对话中 Agent 可调用工具（继承任务的 `enabled_tools_json`）。
+3. [ ] 对话结果可选回写任务状态（如用户确认后从 blocked -> todo）。
+4. [ ] 实现断线恢复：`last_message_id` 重连、消息缓存、历史补发。
+
+### 并行任务 P7-F：评论触发响应
+
+- Owner: Backend API
+- 依赖：P7-A step 3
+- 串行任务：
+1. [ ] 扩展 `comments` 表增加 `conversation_id` 字段及迁移。
+2. [ ] 新增 `POST /comments/{id}/reply` 创建对话并请求 Agent 响应。
+3. [ ] Agent 响应后自动更新评论状态为 `addressed`。
+4. [ ] 新增评论-对话联动回归测试。
+
+Phase 7 验收：
+1. [ ] 用户可通过 WebSocket 与 Agent 进行实时双向对话。
+2. [ ] Agent 输出逐块流式推送，用户可随时打断。
+3. [ ] 工具调用过程透明可见（工具名、参数、结果）。
+4. [ ] Agent 可主动向用户提问，用户回复后继续执行。
+5. [ ] 对话可关联任务并继承执行上下文。
+6. [ ] 断线后可通过 `last_message_id` 恢复会话。
+
+---
+
+## Phase 8: 联调、验收与发布
 
 目标：完成前后端联调、端到端验收和首版发布准备。
 
-### 并行任务 P7-A：前后端联调
+### 并行任务 P8-A：前后端联调
 
 - Owner: Backend API + Frontend
-- 依赖：Phase 6 完成
-- 待决策清单（进入 Phase 7 前需确认）：
+- 依赖：Phase 7 完成
+- 待决策清单（进入 Phase 8 前需确认）：
   - [ ] 前端脚手架：Vite + Vue 3（推荐）vs Nuxt 3
   - [ ] API 客户端生成策略：基于 OpenAPI schema 自动生成（openapi-typescript / orval）vs 手写 fetch/axios
   - [ ] 状态管理：Pinia（推荐）vs 纯 Composables
@@ -380,11 +456,11 @@ Phase 6 验收：
 3. [ ] 修复契约不一致问题并更新 API 文档。
 4. [ ] 产出联调问题清单与关闭记录。
 
-### 并行任务 P7-B：端到端验收用例
+### 并行任务 P8-B：端到端验收用例
 
 - Owner: QA
-- 依赖：P7-A step 2
-- 待决策清单（进入 Phase 7 前需确认）：
+- 依赖：P8-A step 2
+- 待决策清单（进入 Phase 8 前需确认）：
   - [ ] E2E 测试范围：纯 API 端到端（pytest + TestClient）vs 浏览器 UI 端到端 vs 两者兼有
   - [ ] 浏览器 E2E 框架（如需要）：Playwright（推荐，Python/JS 双支持）vs Cypress
   - [ ] CI 平台：GitHub Actions（推荐）vs GitLab CI
@@ -395,14 +471,14 @@ Phase 6 验收：
 3. [ ] 执行回归并归档报告。
 4. [ ] 对未覆盖风险给出补救措施。
 
-### 并行任务 P7-C：发布与运维交付
+### 并行任务 P8-C：发布与运维交付
 
 - Owner: Infra
-- 依赖：P7-B step 3
-- 待决策清单（进入 Phase 7 前需确认）：
+- 依赖：P8-B step 3
+- 待决策清单（进入 Phase 8 前需确认）：
   - [ ] 容器化方案：Docker（推荐）vs Podman vs 直接 systemd
   - [ ] 编排方案：docker-compose（推荐，MVP 单机）vs K8s vs 云 PaaS（Fly.io / Railway）
-  - [ ] CI/CD 平台：与 P7-B 统一（GitHub Actions 推荐）
+  - [ ] CI/CD 平台：与 P8-B 统一（GitHub Actions 推荐）
   - [ ] 生产数据库：继续 SQLite（单用户场景可行）vs 升级 PostgreSQL（并发写入需求时）
   - [ ] 密钥管理：`.env` 文件 + docker secrets（MVP）vs Vault
   - [ ] 版本号策略：语义版本 + Git tag + CHANGELOG.md（已有）
@@ -413,7 +489,7 @@ Phase 6 验收：
 3. [ ] 输出上线后 7 天监控指标与值班规则。
 4. [ ] 创建首版里程碑标签并冻结 MVP 范围。
 
-Phase 7 验收：
+Phase 8 验收：
 1. [ ] MVP 主链路全通过。
 2. [ ] 文档、脚本、回滚预案齐备。
 3. [ ] 满足首版发布条件。
@@ -423,7 +499,7 @@ Phase 7 验收：
 ## 关键路径与并行建议
 
 关键路径：
-1. `P2-B` -> `P3-A` -> `P3-C0` -> `P3-C` -> `P4-C` -> `P6-A` -> `P7-A` -> `P7-B`
+1. `P2-B` -> `P3-A` -> `P3-C0` -> `P3-C` -> `P4-C` -> `P6-A` -> `P7-A` -> `P8-A` -> `P8-B`
 
 并行优先级建议：
 1. 优先保证数据模型与状态机正确性（先正确，再并发）。

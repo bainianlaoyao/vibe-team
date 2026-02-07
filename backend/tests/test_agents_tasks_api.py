@@ -666,6 +666,19 @@ def test_run_task_endpoint_executes_and_is_idempotent(
     assert duplicate_payload["run_status"] == "succeeded"
     assert fake_llm.invocation_count == 1
 
+    run_logs_response = api_context.client.get(
+        "/api/v1/logs",
+        params={
+            "project_id": api_context.project_id,
+            "run_id": first_payload["id"],
+        },
+    )
+    assert run_logs_response.status_code == 200
+    run_logs = run_logs_response.json()
+    assert len(run_logs) == 1
+    assert run_logs[0]["run_id"] == first_payload["id"]
+    assert run_logs[0]["message"] == "任务执行完成"
+
     task_state_response = api_context.client.get(f"/api/v1/tasks/{task_id}")
     assert task_state_response.status_code == 200
     assert task_state_response.json()["status"] == "review"
