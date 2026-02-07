@@ -19,6 +19,7 @@ from app.api.tools import router as tools_router
 from app.core.auth import LocalApiKeyMiddleware
 from app.core.config import get_settings
 from app.core.logging import TraceContextMiddleware, configure_logging
+from app.db.bootstrap import initialize_database
 from app.db.engine import dispose_engine, get_engine
 from app.runtime import build_stuck_run_detector, run_stuck_detector_loop
 
@@ -29,6 +30,11 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        if settings.db_auto_init:
+            initialize_database(
+                database_url=settings.database_url,
+                seed=settings.db_auto_seed,
+            )
         get_engine()
         detector_task: asyncio.Task[None] | None = None
         detector = build_stuck_run_detector(settings)

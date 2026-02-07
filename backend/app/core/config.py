@@ -30,6 +30,8 @@ class Settings(BaseModel):
     log_db_enabled: bool = Field(default=False)
     log_db_min_level: str = Field(default="WARNING")
     local_api_key: str | None = Field(default=None)
+    db_auto_init: bool = Field(default=True)
+    db_auto_seed: bool = Field(default=True)
     cost_alert_threshold_usd: Decimal = Field(default=Decimal("0"))
     stuck_idle_timeout_s: int = Field(default=600, ge=1)
     stuck_repeat_threshold: float = Field(default=0.8, ge=0, le=1)
@@ -83,6 +85,8 @@ def load_settings() -> Settings:
     app_env = _normalize_env(os.getenv("APP_ENV"))
     default_debug = app_env != "production"
     default_testing = app_env == "test"
+    default_db_auto_init = app_env == "development"
+    default_db_auto_seed = app_env == "development"
     default_db = (
         "sqlite:///./beebeebrain_test.db" if app_env == "test" else "sqlite:///./beebeebrain.db"
     )
@@ -106,6 +110,8 @@ def load_settings() -> Settings:
         log_db_enabled=_to_bool(os.getenv("LOG_DB_ENABLED"), default=False),
         log_db_min_level=os.getenv("LOG_DB_MIN_LEVEL", "WARNING"),
         local_api_key=os.getenv("LOCAL_API_KEY"),
+        db_auto_init=_to_bool(os.getenv("DB_AUTO_INIT"), default=default_db_auto_init),
+        db_auto_seed=_to_bool(os.getenv("DB_AUTO_SEED"), default=default_db_auto_seed),
         cost_alert_threshold_usd=_to_decimal(
             os.getenv("COST_ALERT_THRESHOLD_USD"),
             default=Decimal("0"),

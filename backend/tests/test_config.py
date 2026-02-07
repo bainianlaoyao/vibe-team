@@ -14,6 +14,8 @@ def test_load_settings_for_test_env(monkeypatch: MonkeyPatch) -> None:
     assert settings.testing is True
     assert settings.debug is True
     assert settings.database_url == "sqlite:///./beebeebrain_test.db"
+    assert settings.db_auto_init is False
+    assert settings.db_auto_seed is False
 
 
 def test_load_settings_for_production_env(monkeypatch: MonkeyPatch) -> None:
@@ -24,6 +26,33 @@ def test_load_settings_for_production_env(monkeypatch: MonkeyPatch) -> None:
 
     assert settings.app_env == "production"
     assert settings.debug is False
+    assert settings.db_auto_init is False
+    assert settings.db_auto_seed is False
+
+
+def test_load_settings_for_development_env_db_auto_init_defaults(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.delenv("DB_AUTO_INIT", raising=False)
+    monkeypatch.delenv("DB_AUTO_SEED", raising=False)
+
+    settings = load_settings()
+
+    assert settings.app_env == "development"
+    assert settings.db_auto_init is True
+    assert settings.db_auto_seed is True
+
+
+def test_load_settings_supports_db_auto_init_overrides(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("DB_AUTO_INIT", "false")
+    monkeypatch.setenv("DB_AUTO_SEED", "false")
+
+    settings = load_settings()
+
+    assert settings.db_auto_init is False
+    assert settings.db_auto_seed is False
 
 
 def test_load_settings_normalizes_log_format(monkeypatch: MonkeyPatch) -> None:

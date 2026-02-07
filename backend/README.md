@@ -47,6 +47,8 @@ cd backend
 - `HOST`: 绑定地址（默认 `127.0.0.1`）
 - `PORT`: 端口（默认 `8000`）
 - `DATABASE_URL`: 数据库连接串（默认开发 `sqlite:///./beebeebrain.db`，测试 `sqlite:///./beebeebrain_test.db`）
+- `DB_AUTO_INIT`: 启动时自动执行 DB 初始化（迁移）（默认仅 `APP_ENV=development` 为 `true`）
+- `DB_AUTO_SEED`: 启动时自动写入种子数据（默认仅 `APP_ENV=development` 为 `true`）
 - `DEBUG`: 调试开关（默认开发/测试 `true`，生产 `false`）
 - `TESTING`: 测试模式开关（默认仅 `APP_ENV=test` 为 `true`）
 - `TASKS_MD_SYNC_ENABLED`: 是否在任务状态变更后自动刷新任务 Markdown 视图（默认 `false`）
@@ -64,6 +66,8 @@ cd backend
 - `STUCK_SCAN_INTERVAL_S`: 卡死检测轮询周期（秒，默认 `60`）
 
 ## 数据库初始化与迁移
+
+说明：开发环境默认在应用启动时自动初始化数据库（可通过 `DB_AUTO_INIT=false` 关闭）；测试/生产默认关闭自动初始化。
 
 初始化数据库（创建 SQLite 文件目录、执行 Alembic 迁移、写入种子数据）：
 

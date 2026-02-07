@@ -301,6 +301,11 @@ backend/
 5. 面板定位明确为验收工具：在 `backend/README.md` 中标注“非正式产品 UI”，避免误作为产品界面演进。
 6. 联调记录归档：`docs/reports/phase6/panel_integration_notes.md`，沉淀链路执行结果与非阻塞问题。
 
+实现落地（P6-C 修复，2026-02-07）：
+1. 新增启动期数据库自动初始化兜底：`backend/app/main.py` 在开发环境默认执行迁移与可选种子，避免调试面板首次运行因缺表报错。
+2. 新增配置项：`DB_AUTO_INIT`、`DB_AUTO_SEED`（`backend/app/core/config.py`），默认仅 `APP_ENV=development` 开启，测试与生产默认关闭。
+3. 新增回归：`backend/tests/test_health.py` 验证开发环境启动后数据库表自动可用。
+
 ### 5.1 核心实体
 1. `projects`
 - `id`, `name`, `root_path`, `created_at`, `updated_at`, `version`
