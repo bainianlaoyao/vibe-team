@@ -62,6 +62,7 @@ class DocumentType(StrEnum):
 class CommentStatus(StrEnum):
     OPEN = "open"
     RESOLVED = "resolved"
+    ADDRESSED = "addressed"
 
 
 class LLMProvider(StrEnum):

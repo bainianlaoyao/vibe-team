@@ -9,6 +9,7 @@ Create Date: 2026-02-07 12:00:00.000000
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -41,14 +42,22 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["task_id"], ["tasks.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_conversations_project_id"), "conversations", ["project_id"], unique=False)
+    op.create_index(
+        op.f("ix_conversations_project_id"), "conversations", ["project_id"], unique=False
+    )
     op.create_index(op.f("ix_conversations_agent_id"), "conversations", ["agent_id"], unique=False)
     op.create_index(op.f("ix_conversations_task_id"), "conversations", ["task_id"], unique=False)
     op.create_index(op.f("ix_conversations_title"), "conversations", ["title"], unique=False)
     op.create_index(op.f("ix_conversations_status"), "conversations", ["status"], unique=False)
-    op.create_index(op.f("ix_conversations_created_at"), "conversations", ["created_at"], unique=False)
-    op.create_index("ix_conversations_project_status", "conversations", ["project_id", "status"], unique=False)
-    op.create_index("ix_conversations_agent_created", "conversations", ["agent_id", "created_at"], unique=False)
+    op.create_index(
+        op.f("ix_conversations_created_at"), "conversations", ["created_at"], unique=False
+    )
+    op.create_index(
+        "ix_conversations_project_status", "conversations", ["project_id", "status"], unique=False
+    )
+    op.create_index(
+        "ix_conversations_agent_created", "conversations", ["agent_id", "created_at"], unique=False
+    )
 
     # Create messages table
     op.create_table(
@@ -65,13 +74,25 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["conversation_id"], ["conversations.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_messages_conversation_id"), "messages", ["conversation_id"], unique=False)
+    op.create_index(
+        op.f("ix_messages_conversation_id"), "messages", ["conversation_id"], unique=False
+    )
     op.create_index(op.f("ix_messages_role"), "messages", ["role"], unique=False)
     op.create_index(op.f("ix_messages_message_type"), "messages", ["message_type"], unique=False)
     op.create_index(op.f("ix_messages_sequence_num"), "messages", ["sequence_num"], unique=False)
     op.create_index(op.f("ix_messages_created_at"), "messages", ["created_at"], unique=False)
-    op.create_index("ix_messages_conversation_created", "messages", ["conversation_id", "created_at"], unique=False)
-    op.create_index("ix_messages_conversation_sequence", "messages", ["conversation_id", "sequence_num"], unique=False)
+    op.create_index(
+        "ix_messages_conversation_created",
+        "messages",
+        ["conversation_id", "created_at"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_messages_conversation_sequence",
+        "messages",
+        ["conversation_id", "sequence_num"],
+        unique=False,
+    )
 
     # Create conversation_sessions table
     op.create_table(
@@ -87,23 +108,51 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["conversation_id"], ["conversations.id"]),
         sa.ForeignKeyConstraint(["last_message_id"], ["messages.id"]),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("conversation_id", "client_id", name="uq_conversation_sessions_conv_client"),
+        sa.UniqueConstraint(
+            "conversation_id", "client_id", name="uq_conversation_sessions_conv_client"
+        ),
     )
-    op.create_index(op.f("ix_conversation_sessions_conversation_id"), "conversation_sessions", ["conversation_id"], unique=False)
-    op.create_index(op.f("ix_conversation_sessions_client_id"), "conversation_sessions", ["client_id"], unique=False)
-    op.create_index(op.f("ix_conversation_sessions_status"), "conversation_sessions", ["status"], unique=False)
-    op.create_index(op.f("ix_conversation_sessions_last_heartbeat_at"), "conversation_sessions", ["last_heartbeat_at"], unique=False)
-    op.create_index("ix_conversation_sessions_status_heartbeat", "conversation_sessions", ["status", "last_heartbeat_at"], unique=False)
+    op.create_index(
+        op.f("ix_conversation_sessions_conversation_id"),
+        "conversation_sessions",
+        ["conversation_id"],
+        unique=False,
+    )
+    op.create_index(
+        op.f("ix_conversation_sessions_client_id"),
+        "conversation_sessions",
+        ["client_id"],
+        unique=False,
+    )
+    op.create_index(
+        op.f("ix_conversation_sessions_status"), "conversation_sessions", ["status"], unique=False
+    )
+    op.create_index(
+        op.f("ix_conversation_sessions_last_heartbeat_at"),
+        "conversation_sessions",
+        ["last_heartbeat_at"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_conversation_sessions_status_heartbeat",
+        "conversation_sessions",
+        ["status", "last_heartbeat_at"],
+        unique=False,
+    )
 
 
 def downgrade() -> None:
     """Drop conversations, messages, and conversation_sessions tables."""
 
     op.drop_index("ix_conversation_sessions_status_heartbeat", table_name="conversation_sessions")
-    op.drop_index(op.f("ix_conversation_sessions_last_heartbeat_at"), table_name="conversation_sessions")
+    op.drop_index(
+        op.f("ix_conversation_sessions_last_heartbeat_at"), table_name="conversation_sessions"
+    )
     op.drop_index(op.f("ix_conversation_sessions_status"), table_name="conversation_sessions")
     op.drop_index(op.f("ix_conversation_sessions_client_id"), table_name="conversation_sessions")
-    op.drop_index(op.f("ix_conversation_sessions_conversation_id"), table_name="conversation_sessions")
+    op.drop_index(
+        op.f("ix_conversation_sessions_conversation_id"), table_name="conversation_sessions"
+    )
     op.drop_table("conversation_sessions")
 
     op.drop_index("ix_messages_conversation_sequence", table_name="messages")

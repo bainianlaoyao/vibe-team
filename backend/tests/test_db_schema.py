@@ -140,6 +140,7 @@ def test_migrations_create_expected_schema(tmp_path: Path) -> None:
             "id",
             "document_id",
             "task_id",
+            "conversation_id",
             "anchor",
             "comment_text",
             "author",
@@ -198,6 +199,7 @@ def test_migrations_create_expected_schema(tmp_path: Path) -> None:
         }
         assert ("document_id", "documents") in comment_foreign_keys
         assert ("task_id", "tasks") in comment_foreign_keys
+        assert ("conversation_id", "conversations") in comment_foreign_keys
     finally:
         engine.dispose()
 

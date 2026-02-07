@@ -3,17 +3,19 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
 from pytest import MonkeyPatch
 from sqlalchemy.engine import Engine
-from sqlmodel import Session, SQLModel
+from sqlmodel import Session, SQLModel, select
 
 from app.core.config import get_settings
 from app.db.engine import create_engine_from_url, dispose_engine
-from app.db.enums import ConversationStatus
-from app.db.models import Agent, Conversation, Project
+from app.db.enums import ConversationStatus, TaskStatus
+from app.db.models import Agent, Conversation, Event, Project, Task
+from app.events.schemas import TASK_STATUS_CHANGED_EVENT_TYPE
 from app.main import create_app
 
 
@@ -46,6 +48,7 @@ def ws_context(tmp_path: Path, monkeypatch: MonkeyPatch) -> Iterator[WSTestConte
         session.add(project)
         session.commit()
         session.refresh(project)
+        assert project.id is not None
         project_id = project.id
 
         agent = Agent(
@@ -60,6 +63,7 @@ def ws_context(tmp_path: Path, monkeypatch: MonkeyPatch) -> Iterator[WSTestConte
         session.add(agent)
         session.commit()
         session.refresh(agent)
+        assert agent.id is not None
         agent_id = agent.id
 
         conversation = Conversation(
@@ -71,6 +75,7 @@ def ws_context(tmp_path: Path, monkeypatch: MonkeyPatch) -> Iterator[WSTestConte
         session.add(conversation)
         session.commit()
         session.refresh(conversation)
+        assert conversation.id is not None
         conversation_id = conversation.id
 
     with TestClient(create_app()) as client:
@@ -120,10 +125,12 @@ class TestWebSocketMessaging:
             websocket.receive_json()
 
             # Send user message
-            websocket.send_json({
-                "type": "user.message",
-                "payload": {"content": "Hello, Agent!"},
-            })
+            websocket.send_json(
+                {
+                    "type": "user.message",
+                    "payload": {"content": "Hello, Agent!"},
+                }
+            )
 
             # Receive acknowledgment
             ack = websocket.receive_json()
@@ -156,3 +163,45 @@ class TestWebSocketMessaging:
             ack = websocket.receive_json()
             assert ack["type"] == "user.interrupt.ack"
             assert ack["payload"]["interrupted"] is True
+
+    def test_user_input_response_can_resume_blocked_task(self, ws_context: WSTestContext) -> None:
+        with Session(ws_context.engine) as session:
+            task = Task(
+                project_id=ws_context.project_id,
+                title="Need input",
+                status=TaskStatus.BLOCKED,
+                priority=2,
+                assignee_agent_id=ws_context.agent_id,
+            )
+            session.add(task)
+            session.commit()
+            session.refresh(task)
+            assert task.id is not None
+            task_id = task.id
+            conversation = session.get(Conversation, ws_context.conversation_id)
+            assert conversation is not None
+            conversation.task_id = task_id
+            session.add(conversation)
+            session.commit()
+
+        with ws_context.client.websocket_connect(
+            f"/ws/conversations/{ws_context.conversation_id}"
+        ) as websocket:
+            websocket.receive_json()
+            websocket.send_json(
+                {
+                    "type": "user.input_response",
+                    "payload": {"content": "confirmed", "resume_task": True},
+                }
+            )
+
+        with Session(ws_context.engine) as session:
+            task_after = session.get(Task, task_id)
+            assert task_after is not None
+            assert str(task_after.status) == "todo"
+            resume_event = session.exec(
+                select(Event)
+                .where(Event.event_type == TASK_STATUS_CHANGED_EVENT_TYPE)
+                .order_by(cast(Any, Event.id).desc())
+            ).first()
+            assert resume_event is not None

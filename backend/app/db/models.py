@@ -242,6 +242,7 @@ class Comment(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     document_id: int | None = Field(default=None, foreign_key="documents.id", index=True)
     task_id: int | None = Field(default=None, foreign_key="tasks.id", index=True)
+    conversation_id: int | None = Field(default=None, foreign_key="conversations.id", index=True)
     anchor: str | None = Field(default=None, sa_column=Column(String(length=240), nullable=True))
     comment_text: str = Field(sa_column=Column(Text(), nullable=False))
     author: str = Field(sa_column=Column(String(length=120), nullable=False, index=True))

@@ -20,7 +20,17 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 
-from app.llm.contracts import LLMClient, LLMMessage, LLMRequest, LLMResponse, LLMToolCall, LLMUsage
+from app.llm.contracts import (
+    LLMClient,
+    LLMMessage,
+    LLMRequest,
+    LLMResponse,
+    LLMToolCall,
+    LLMUsage,
+    StreamCallback,
+    StreamEvent,
+    StreamEventType,
+)
 from app.llm.errors import LLMErrorCode, LLMProviderError
 from app.llm.providers.claude_settings import resolve_claude_auth
 
@@ -119,6 +129,107 @@ class ClaudeCodeAdapter(LLMClient):
                 cause=exc,
             ) from exc
 
+    async def generate_stream(
+        self,
+        request: LLMRequest,
+        callback: StreamCallback,
+    ) -> LLMResponse:
+        """Generate response with streaming callbacks for real-time updates."""
+        prompt = _extract_last_user_prompt(request.messages)
+        auth = resolve_claude_auth(settings_path_override=self._settings_path)
+        options = ClaudeAgentOptions(
+            model=request.model,
+            system_prompt=request.system_prompt,
+            max_turns=request.max_turns or self._default_max_turns,
+            cwd=request.cwd,
+            settings=str(auth.settings_path) if auth.settings_path else None,
+            env=auth.env,
+            cli_path=self._cli_path,
+        )
+
+        try:
+            async with self._client_factory(options) as client:
+                await client.query(prompt, session_id=request.session_id)
+                return await _collect_response_streaming(
+                    client=client,
+                    provider=request.provider,
+                    model=request.model,
+                    session_id=request.session_id,
+                    callback=callback,
+                )
+        except LLMProviderError:
+            raise
+        except CLINotFoundError as exc:
+            await callback(
+                StreamEvent(
+                    event_type=StreamEventType.ERROR,
+                    error=str(exc),
+                )
+            )
+            raise LLMProviderError(
+                code=LLMErrorCode.PROVIDER_NOT_FOUND,
+                provider=request.provider,
+                message=str(exc),
+                retryable=False,
+                cause=exc,
+            ) from exc
+        except CLIConnectionError as exc:
+            await callback(
+                StreamEvent(
+                    event_type=StreamEventType.ERROR,
+                    error=str(exc),
+                )
+            )
+            raise LLMProviderError(
+                code=LLMErrorCode.PROVIDER_UNAVAILABLE,
+                provider=request.provider,
+                message=str(exc),
+                retryable=True,
+                cause=exc,
+            ) from exc
+        except CLIJSONDecodeError as exc:
+            await callback(
+                StreamEvent(
+                    event_type=StreamEventType.ERROR,
+                    error=str(exc),
+                )
+            )
+            raise LLMProviderError(
+                code=LLMErrorCode.PROVIDER_PROTOCOL_ERROR,
+                provider=request.provider,
+                message=str(exc),
+                retryable=True,
+                cause=exc,
+            ) from exc
+        except ProcessError as exc:
+            await callback(
+                StreamEvent(
+                    event_type=StreamEventType.ERROR,
+                    error=str(exc),
+                )
+            )
+            raise LLMProviderError(
+                code=LLMErrorCode.EXECUTION_FAILED,
+                provider=request.provider,
+                message=str(exc),
+                retryable=True,
+                cause=exc,
+            ) from exc
+        except ClaudeSDKError as exc:
+            await callback(
+                StreamEvent(
+                    event_type=StreamEventType.ERROR,
+                    error=str(exc),
+                )
+            )
+            raise LLMProviderError(
+                code=LLMErrorCode.EXECUTION_FAILED,
+                provider=request.provider,
+                message=str(exc),
+                retryable=True,
+                cause=exc,
+            ) from exc
+
 
 def _extract_last_user_prompt(messages: list[LLMMessage]) -> str:
     for message in reversed(messages):
@@ -181,6 +292,101 @@ async def _collect_response(
         text = final_result.result.strip()
 
     usage = _extract_usage(provider=provider, result=final_result)
+    return LLMResponse(
+        provider=provider,
+        model=model,
+        session_id=final_result.session_id or session_id,
+        text=text,
+        tool_calls=tool_calls,
+        usage=usage,
+        stop_reason=final_result.subtype,
+        raw_result=final_result.result,
+    )
+
+
+async def _collect_response_streaming(
+    *,
+    client: ClaudeSDKClientLike,
+    provider: str,
+    model: str | None,
+    session_id: str,
+    callback: StreamCallback,
+) -> LLMResponse:
+    """Collect response while streaming events via callback."""
+    text_parts: list[str] = []
+    tool_calls: list[LLMToolCall] = []
+    final_result: ResultMessage | None = None
+    assistant_error: str | None = None
+
+    async for message in client.receive_response():
+        if isinstance(message, AssistantMessage):
+            if message.error is not None:
+                assistant_error = message.error
+                await callback(
+                    StreamEvent(
+                        event_type=StreamEventType.ERROR,
+                        error=message.error,
+                    )
+                )
+            for block in message.content:
+                if isinstance(block, TextBlock):
+                    text_parts.append(block.text)
+                    await callback(
+                        StreamEvent(
+                            event_type=StreamEventType.TEXT_CHUNK,
+                            content=block.text,
+                        )
+                    )
+                if isinstance(block, ToolUseBlock):
+                    tool_call = LLMToolCall(
+                        id=block.id, name=block.name, arguments=dict(block.input)
+                    )
+                    tool_calls.append(tool_call)
+                    await callback(
+                        StreamEvent(
+                            event_type=StreamEventType.TOOL_CALL_START,
+                            tool_call=tool_call,
+                        )
+                    )
+            continue
+
+        if isinstance(message, ResultMessage):
+            final_result = message
+
+    if assistant_error is not None:
+        raise _map_assistant_error(provider=provider, assistant_error=assistant_error)
+
+    if final_result is None:
+        raise LLMProviderError(
+            code=LLMErrorCode.PROVIDER_PROTOCOL_ERROR,
+            provider=provider,
+            message="Claude SDK response stream ended without ResultMessage.",
+            retryable=True,
+        )
+
+    if final_result.is_error:
+        await callback(
+            StreamEvent(
+                event_type=StreamEventType.ERROR,
+                error=final_result.result or "Unknown error",
+            )
+        )
+        raise _map_result_error(provider=provider, result=final_result)
+
+    text = "".join(text_parts).strip()
+    if not text and final_result.result:
+        text = final_result.result.strip()
+
+    usage = _extract_usage(provider=provider, result=final_result)
+
+    # Send complete event with usage info
+    await callback(
+        StreamEvent(
+            event_type=StreamEventType.COMPLETE,
+            usage=usage,
+        )
+    )
+
     return LLMResponse(
         provider=provider,
         model=model,

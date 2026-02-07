@@ -12,7 +12,8 @@ from sqlmodel import Session, SQLModel
 
 from app.core.config import get_settings
 from app.db.engine import create_engine_from_url, dispose_engine
-from app.db.models import Agent, Project
+from app.db.enums import TaskRunStatus, TaskStatus
+from app.db.models import Agent, Project, Task, TaskRun
 from app.main import create_app
 
 
@@ -40,7 +41,10 @@ def conv_context(tmp_path: Path, monkeypatch: MonkeyPatch) -> Iterator[Conversat
     SQLModel.metadata.create_all(engine)
 
     with Session(engine) as session:
-        project = Project(name="Conversation Project", root_path=str((tmp_path / "workspace").resolve()))
+        project = Project(
+            name="Conversation Project",
+            root_path=str((tmp_path / "workspace").resolve()),
+        )
         session.add(project)
         session.commit()
         session.refresh(project)
@@ -95,7 +99,9 @@ class TestConversationCRUD:
         assert data["context_json"] == {"topic": "testing"}
         assert data["id"] is not None
 
-    def test_create_conversation_invalid_project(self, conv_context: ConversationTestContext) -> None:
+    def test_create_conversation_invalid_project(
+        self, conv_context: ConversationTestContext
+    ) -> None:
         resp = conv_context.client.post(
             "/api/v1/conversations",
             json={
@@ -118,6 +124,66 @@ class TestConversationCRUD:
         )
         assert resp.status_code == 404
         assert resp.json()["error"]["code"] == "AGENT_NOT_FOUND"
+
+    def test_create_conversation_inherits_task_context(
+        self,
+        conv_context: ConversationTestContext,
+    ) -> None:
+        with Session(conv_context.engine) as session:
+            task = Task(
+                project_id=conv_context.project_id,
+                title="Task Context Source",
+                description="Task for conversation inheritance",
+                status=TaskStatus.BLOCKED,
+                priority=2,
+                assignee_agent_id=conv_context.agent_id,
+            )
+            session.add(task)
+            session.commit()
+            session.refresh(task)
+            assert task.id is not None
+            task_id = task.id
+
+            run = TaskRun(
+                task_id=task_id,
+                agent_id=conv_context.agent_id,
+                run_status=TaskRunStatus.INTERRUPTED,
+                attempt=1,
+                idempotency_key="conv-inherit-run-1",
+            )
+            session.add(run)
+            session.commit()
+
+            child = Task(
+                project_id=conv_context.project_id,
+                title="Child Dependency",
+                status=TaskStatus.TODO,
+                priority=3,
+                parent_task_id=task.id,
+            )
+            session.add(child)
+            session.commit()
+
+        resp = conv_context.client.post(
+            "/api/v1/conversations",
+            json={
+                "project_id": conv_context.project_id,
+                "agent_id": conv_context.agent_id,
+                "task_id": task_id,
+                "title": "Context Inheritance",
+                "context_json": {"entry": "base"},
+            },
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        task_context = data["context_json"]["task_context"]
+        assert task_context["task_id"] == task_id
+        assert task_context["title"] == "Task Context Source"
+        assert task_context["enabled_tools"] == []
+        assert len(task_context["dependencies"]) == 1
+        assert task_context["dependencies"][0]["title"] == "Child Dependency"
+        assert len(task_context["recent_runs"]) == 1
+        assert task_context["recent_runs"][0]["run_status"] == "interrupted"
 
     def test_get_conversation(self, conv_context: ConversationTestContext) -> None:
         create_resp = conv_context.client.post(
@@ -286,7 +352,10 @@ class TestMessageCRUD:
         assert msg2.json()["sequence_num"] == 2
         assert msg3.json()["sequence_num"] == 3
 
-    def test_cannot_add_message_to_closed_conversation(self, conv_context: ConversationTestContext) -> None:
+    def test_cannot_add_message_to_closed_conversation(
+        self,
+        conv_context: ConversationTestContext,
+    ) -> None:
         conv_resp = conv_context.client.post(
             "/api/v1/conversations",
             json={

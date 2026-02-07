@@ -6,6 +6,10 @@ from app.llm.contracts import (
     LLMRole,
     LLMToolCall,
     LLMUsage,
+    StreamCallback,
+    StreamEvent,
+    StreamEventType,
+    StreamingLLMClient,
 )
 from app.llm.errors import LLMErrorCode, LLMProviderError
 from app.llm.factory import create_llm_client
@@ -21,6 +25,10 @@ __all__ = [
     "LLMRole",
     "LLMToolCall",
     "LLMUsage",
+    "StreamCallback",
+    "StreamEvent",
+    "StreamEventType",
+    "StreamingLLMClient",
     "create_llm_client",
     "record_usage_for_run",
 ]

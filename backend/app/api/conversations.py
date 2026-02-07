@@ -6,11 +6,11 @@ from typing import Annotated, Any, cast
 from fastapi import APIRouter, Depends, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.api.errors import ApiException, error_response_docs
 from app.db.enums import ConversationStatus, MessageRole, MessageType
-from app.db.models import Agent, Conversation, Message, Project, Task
+from app.db.models import Agent, Conversation, Message, Project, Task, TaskRun
 from app.db.repositories import (
     ConversationFilters,
     ConversationRepository,
@@ -187,6 +187,46 @@ def _require_agent(session: Session, agent_id: int) -> Agent:
     return agent
 
 
+def _build_task_context(session: Session, task: Task) -> dict[str, Any]:
+    dependency_rows = session.exec(
+        select(Task.id, Task.title).where(Task.parent_task_id == task.id)
+    ).all()
+    dependencies = [{"task_id": row[0], "title": row[1]} for row in dependency_rows]
+
+    run_rows = session.exec(
+        select(TaskRun.id, TaskRun.run_status, TaskRun.started_at, TaskRun.ended_at)
+        .where(TaskRun.task_id == task.id)
+        .order_by(cast(Any, TaskRun.id).desc())
+        .limit(5)
+    ).all()
+    recent_runs = [
+        {
+            "run_id": row[0],
+            "run_status": row[1].value if hasattr(row[1], "value") else str(row[1]),
+            "started_at": row[2].isoformat() if row[2] is not None else None,
+            "ended_at": row[3].isoformat() if row[3] is not None else None,
+        }
+        for row in run_rows
+    ]
+
+    enabled_tools: list[str] = []
+    if task.assignee_agent_id is not None:
+        task_agent = session.get(Agent, task.assignee_agent_id)
+        if task_agent is not None:
+            enabled_tools = list(task_agent.enabled_tools_json)
+
+    return {
+        "task_id": task.id,
+        "title": task.title,
+        "description": task.description,
+        "status": task.status.value if hasattr(task.status, "value") else str(task.status),
+        "priority": task.priority,
+        "dependencies": dependencies,
+        "recent_runs": recent_runs,
+        "enabled_tools": enabled_tools,
+    }
+
+
 def _get_conversation_or_404(session: Session, conversation_id: int) -> Conversation:
     conversation = session.get(Conversation, conversation_id)
     if conversation is None:
@@ -266,6 +306,7 @@ def list_conversations(
 def create_conversation(payload: ConversationCreate, session: DbSession) -> ConversationRead:
     _require_project(session, payload.project_id)
     _require_agent(session, payload.agent_id)
+    context_json = dict(payload.context_json)
     if payload.task_id is not None:
         task = session.get(Task, payload.task_id)
         if task is None:
@@ -274,8 +315,17 @@ def create_conversation(payload: ConversationCreate, session: DbSession) -> Conv
                 "TASK_NOT_FOUND",
                 f"Task {payload.task_id} does not exist.",
             )
+        if task.project_id != payload.project_id:
+            raise ApiException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "INVALID_TASK_REFERENCE",
+                "Task must belong to the same project as conversation.",
+            )
+        context_json["task_context"] = _build_task_context(session, task)
 
-    conversation = Conversation(**payload.model_dump(mode="python"))
+    conversation_payload = payload.model_dump(mode="python")
+    conversation_payload["context_json"] = context_json
+    conversation = Conversation(**conversation_payload)
     session.add(conversation)
     _commit_or_conflict(session)
     session.refresh(conversation)

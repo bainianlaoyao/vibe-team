@@ -1,3 +1,9 @@
+from app.runtime.conversation_executor import (
+    ConversationExecutor,
+    ExecutionContext,
+    ExecutionResult,
+    WebSocketPusher,
+)
 from app.runtime.execution import (
     DEFAULT_RECOVERY_ACTOR,
     DEFAULT_RUNTIME_ACTOR,
@@ -26,8 +32,11 @@ from app.runtime.stuck_detector import (
 )
 
 __all__ = [
+    "ConversationExecutor",
     "DEFAULT_RECOVERY_ACTOR",
     "DEFAULT_RUNTIME_ACTOR",
+    "ExecutionContext",
+    "ExecutionResult",
     "FAILURE_POINT_AFTER_LLM",
     "FAILURE_POINT_BEFORE_LLM",
     "FailureInjectionRule",
@@ -44,6 +53,7 @@ __all__ = [
     "StuckAlertKind",
     "StuckRunDetector",
     "TaskRunRuntimeService",
+    "WebSocketPusher",
     "build_stuck_run_detector",
     "run_stuck_detector_loop",
 ]

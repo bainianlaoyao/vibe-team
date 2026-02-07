@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI
 
 from app.api.agents import router as agents_router
+from app.api.comments import router as comments_router
 from app.api.conversations import router as conversations_router
 from app.api.debug import router as debug_router
 from app.api.errors import register_exception_handlers
@@ -67,6 +68,7 @@ def create_app() -> FastAPI:
     app.include_router(debug_router)
     app.include_router(health_router)
     app.include_router(agents_router, prefix="/api/v1")
+    app.include_router(comments_router, prefix="/api/v1")
     app.include_router(conversations_router, prefix="/api/v1")
     app.include_router(events_router, prefix="/api/v1")
     app.include_router(inbox_router, prefix="/api/v1")

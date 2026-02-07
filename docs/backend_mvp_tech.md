@@ -314,6 +314,16 @@ backend/
 
 ## Phase 7：人机协作对话（Agent Conversation）
 
+实现落地（P7，2026-02-07）：
+1. WebSocket 对话通道接入执行器：`app/api/ws_conversations.py` 在 `user.message` 与 `user.input_response` 后触发 `ConversationExecutor`，并支持 `user.interrupt` 取消。
+2. Claude 流式响应闭环：`app/llm/contracts.py` 与 `app/llm/providers/claude_code.py` 增加流式事件契约（`TEXT_CHUNK/TOOL_CALL_START/COMPLETE/ERROR`）与 `generate_stream`。
+3. 对话执行器落地：`app/runtime/conversation_executor.py` 负责上下文构建、流式推送、消息持久化、工具调用透明事件（`tool_call/tool_result/input_request`）与超时/取消处理。
+4. 任务上下文继承：`POST /api/v1/conversations` 在指定 `task_id` 时自动注入任务摘要、依赖、近期运行记录与可用工具到 `context_json.task_context`。
+5. 执行中交互：`user.input_response` 支持可选 `resume_task=true`，在任务为 `blocked` 时自动回写到 `todo` 并写任务状态事件。
+6. 评论触发对话：新增 `POST /api/v1/comments/{id}/reply`，自动创建对话并请求 Agent 响应；成功后回写评论 `status=addressed` 且关联 `conversation_id`。
+7. 数据层扩展：新增 migration `9c1a2b3d4e5f_add_comment_conversation_link.py`，为 `comments` 增加 `conversation_id`（SQLite 采用 batch alter）。
+8. 回归测试补齐：新增 `tests/test_conversation_executor.py`、`tests/test_comments_reply_api.py`，并扩展 `tests/test_conversations_api.py`、`tests/test_ws_conversations.py`、`tests/test_db_schema.py`。
+
 ### 7.0 背景与目标
 
 产品设计要求用户不仅能"管理"Agent，还需与 Agent 进行**实时协作**：

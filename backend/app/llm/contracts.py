@@ -14,6 +14,17 @@ class LLMRole(StrEnum):
     TOOL = "tool"
 
 
+class StreamEventType(StrEnum):
+    """Types of streaming events from LLM."""
+
+    TEXT_CHUNK = "text_chunk"
+    TOOL_CALL_START = "tool_call_start"
+    TOOL_CALL_END = "tool_call_end"
+    THINKING = "thinking"
+    COMPLETE = "complete"
+    ERROR = "error"
+
+
 @dataclass(frozen=True, slots=True)
 class LLMMessage:
     role: LLMRole
@@ -59,5 +70,34 @@ class LLMResponse:
     raw_result: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class StreamEvent:
+    """A streaming event from the LLM."""
+
+    event_type: StreamEventType
+    content: str = ""
+    tool_call: LLMToolCall | None = None
+    usage: LLMUsage | None = None
+    error: str | None = None
+
+
+class StreamCallback(Protocol):
+    """Callback protocol for streaming events."""
+
+    async def __call__(self, event: StreamEvent) -> None: ...
+
+
 class LLMClient(Protocol):
     async def generate(self, request: LLMRequest) -> LLMResponse: ...
+
+
+class StreamingLLMClient(Protocol):
+    """Extended LLM client with streaming support."""
+
+    async def generate(self, request: LLMRequest) -> LLMResponse: ...
+
+    async def generate_stream(
+        self,
+        request: LLMRequest,
+        callback: StreamCallback,
+    ) -> LLMResponse: ...
