@@ -17,6 +17,7 @@ from app.api.logs import router as logs_router
 from app.api.metrics import router as metrics_router
 from app.api.tasks import router as tasks_router
 from app.api.tools import router as tools_router
+from app.api.ws_conversations import router as ws_conversations_router
 from app.core.auth import LocalApiKeyMiddleware
 from app.core.config import get_settings
 from app.core.logging import TraceContextMiddleware, configure_logging
@@ -73,6 +74,7 @@ def create_app() -> FastAPI:
     app.include_router(metrics_router, prefix="/api/v1")
     app.include_router(tasks_router, prefix="/api/v1")
     app.include_router(tools_router, prefix="/api/v1")
+    app.include_router(ws_conversations_router)
     return app
 
 
