@@ -271,10 +271,10 @@ Phase 4 验收：
   - 告警策略：基于阈值比较（配置项 `COST_ALERT_THRESHOLD_USD`），命中后写 `alert.raised` 事件并创建 `inbox_items`
   - 不引入时序数据库或 Prometheus（MVP 单机 SQLite 体量无需）
 - 串行任务：
-1. [ ] 落库 `api_usage_daily` 与运行时延指标。
-2. [ ] 提供聚合接口（按 provider/model/date 统计）。
-3. [ ] 定义成本超阈值告警策略。
-4. [ ] 编写统计正确性测试。
+1. [x] 落库 `api_usage_daily` 与运行时延指标。
+2. [x] 提供聚合接口（按 provider/model/date 统计）。
+3. [x] 定义成本超阈值告警策略。
+4. [x] 编写统计正确性测试。
 
 ### 并行任务 P5-C：卡死检测与用户确认入箱
 

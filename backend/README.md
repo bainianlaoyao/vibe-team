@@ -56,6 +56,7 @@ cd backend
 - `LOG_FILE`: 可选日志文件输出路径（默认不写文件）
 - `LOG_DB_ENABLED`: 预留 DB 日志写入开关（默认 `false`）
 - `LOG_DB_MIN_LEVEL`: 预留 DB 日志最小级别（默认 `WARNING`）
+- `COST_ALERT_THRESHOLD_USD`: 日成本告警阈值（`<=0` 关闭告警，默认 `0`）
 
 ## 数据库初始化与迁移
 
@@ -99,6 +100,8 @@ uv run alembic upgrade head
 - `POST /events`（结构化事件写入：`task.status.changed` / `run.log` / `alert.raised`）
 - `GET /events/stream`（SSE，支持 `Last-Event-ID` 断线重连与 `replay_last` 回放）
 - `GET /logs`（运行日志查询，支持 `project_id/task_id/run_id/level` 过滤）
+- `GET /metrics/usage-daily`（按 `provider/model/date` 查询成本与 token 聚合）
+- `GET /metrics/runs-summary`（运行状态、耗时、token、成本汇总）
 - `POST /tools/finish_task|block_task|request_input`（CLI 工具命令 API，支持 Idempotency Key 与审计）
 
 ## 追踪头

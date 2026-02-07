@@ -257,6 +257,13 @@ backend/
 4. 新增日志查询接口：`GET /api/v1/logs`（`app/api/logs.py`），支持按 `project_id/task_id/run_id/level` 过滤 `run.log` 事件。
 5. 新增日志回归：`tests/test_logs_api.py`，覆盖过滤查询、`X-Trace-ID` 透传/生成与脏 payload 容错。
 
+实现落地（P5-B，2026-02-07）：
+1. 新增指标接口：`app/api/metrics.py`，提供 `GET /api/v1/metrics/usage-daily` 与 `GET /api/v1/metrics/runs-summary`。
+2. `usage-daily` 支持按 `provider/model/date` 过滤并输出请求数、token 与成本汇总。
+3. `runs-summary` 基于 `task_runs` 聚合运行状态分布、总 token/cost 与平均/最大耗时。
+4. 成本阈值告警接入 `app/llm/usage.py`：命中 `COST_ALERT_THRESHOLD_USD` 后写 `alert.raised` 并创建 `inbox_items(await_user_input)`。
+5. 新增回归测试：`tests/test_metrics_api.py` 与 `tests/test_llm_usage.py`，覆盖聚合正确性与成本告警去重。
+
 ### 5.1 核心实体
 1. `projects`
 - `id`, `name`, `root_path`, `created_at`, `updated_at`, `version`

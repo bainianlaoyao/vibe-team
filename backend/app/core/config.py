@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from decimal import Decimal
 from functools import lru_cache
 from typing import Literal
 
@@ -28,6 +29,7 @@ class Settings(BaseModel):
     log_file: str | None = Field(default=None)
     log_db_enabled: bool = Field(default=False)
     log_db_min_level: str = Field(default="WARNING")
+    cost_alert_threshold_usd: Decimal = Field(default=Decimal("0"))
 
 
 def _to_bool(value: str | None, *, default: bool) -> bool:
@@ -63,6 +65,15 @@ def _normalize_log_format(value: str | None) -> LogFormat:
     return "json"
 
 
+def _to_decimal(value: str | None, *, default: Decimal) -> Decimal:
+    if value is None:
+        return default
+    try:
+        return Decimal(value.strip())
+    except Exception:
+        return default
+
+
 def load_settings() -> Settings:
     app_env = _normalize_env(os.getenv("APP_ENV"))
     default_debug = app_env != "production"
@@ -89,6 +100,10 @@ def load_settings() -> Settings:
         log_file=os.getenv("LOG_FILE"),
         log_db_enabled=_to_bool(os.getenv("LOG_DB_ENABLED"), default=False),
         log_db_min_level=os.getenv("LOG_DB_MIN_LEVEL", "WARNING"),
+        cost_alert_threshold_usd=_to_decimal(
+            os.getenv("COST_ALERT_THRESHOLD_USD"),
+            default=Decimal("0"),
+        ),
     )
 
 

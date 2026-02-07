@@ -7,10 +7,18 @@ from pathlib import Path
 import pytest
 from sqlmodel import Session, select
 
+from app.core.config import get_settings
 from app.db.bootstrap import initialize_database
 from app.db.engine import create_engine_from_url
-from app.db.enums import AgentStatus, TaskRunStatus, TaskStatus
-from app.db.models import Agent, ApiUsageDaily, Project, Task, TaskRun
+from app.db.enums import (
+    AgentStatus,
+    InboxItemType,
+    InboxStatus,
+    SourceType,
+    TaskRunStatus,
+    TaskStatus,
+)
+from app.db.models import Agent, ApiUsageDaily, Event, InboxItem, Project, Task, TaskRun
 from app.llm.contracts import LLMUsage
 from app.llm.usage import record_usage_for_run
 
@@ -152,4 +160,64 @@ def test_record_usage_for_run_validates_inputs(tmp_path: Path) -> None:
                     usage=LLMUsage(),
                 )
     finally:
+        engine.dispose()
+
+
+def test_record_usage_for_run_raises_cost_alert_and_creates_inbox_item(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_url = _to_sqlite_url(tmp_path / "llm-usage-alert.db")
+    initialize_database(database_url=db_url, seed=False)
+    engine = create_engine_from_url(db_url)
+    monkeypatch.setenv("COST_ALERT_THRESHOLD_USD", "0.0100")
+    get_settings.cache_clear()
+
+    try:
+        with Session(engine) as session:
+            run = _create_run(session, tmp_path)
+            assert run.id is not None
+
+            record_usage_for_run(
+                session,
+                run_id=run.id,
+                provider="claude_code",
+                model_name="claude-sonnet-4-5",
+                usage=LLMUsage(
+                    request_count=1,
+                    token_in=120,
+                    token_out=40,
+                    cost_usd=Decimal("0.0123"),
+                ),
+                occurred_at=datetime(2026, 2, 7, 8, 0, 0, tzinfo=UTC),
+            )
+
+            record_usage_for_run(
+                session,
+                run_id=run.id,
+                provider="claude_code",
+                model_name="claude-sonnet-4-5",
+                usage=LLMUsage(
+                    request_count=1,
+                    token_in=10,
+                    token_out=5,
+                    cost_usd=Decimal("0.0010"),
+                ),
+                occurred_at=datetime(2026, 2, 7, 9, 0, 0, tzinfo=UTC),
+            )
+
+            alert_events = session.exec(
+                select(Event).where(Event.event_type == "alert.raised")
+            ).all()
+            assert len(alert_events) == 1
+            assert alert_events[0].payload_json["code"] == "COST_THRESHOLD_EXCEEDED"
+            assert alert_events[0].payload_json["severity"] == "warning"
+
+            inbox_items = session.exec(select(InboxItem)).all()
+            assert len(inbox_items) == 1
+            assert inbox_items[0].item_type == InboxItemType.AWAIT_USER_INPUT
+            assert inbox_items[0].source_type == SourceType.SYSTEM
+            assert inbox_items[0].status == InboxStatus.OPEN
+    finally:
+        get_settings.cache_clear()
         engine.dispose()
