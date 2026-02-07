@@ -109,3 +109,77 @@ def test_scheduler_selects_ready_tasks_by_priority_and_dependencies(tmp_path: Pa
             assert next_task.title == "Ready Parent"
     finally:
         engine.dispose()
+
+
+def test_scheduler_skips_tasks_with_failed_or_cancelled_dependencies(tmp_path: Path) -> None:
+    db_url = _to_sqlite_url(tmp_path / "scheduler-failed-deps.db")
+    initialize_database(database_url=db_url, seed=False)
+
+    engine = create_engine_from_url(db_url)
+    try:
+        with Session(engine) as session:
+            project = Project(name="Failure Project", root_path=str(tmp_path / "fail-workspace"))
+            session.add(project)
+            session.flush()
+            assert project.id is not None
+            project_id = project.id
+
+            # Create dependencies in terminal but non-success states
+            dep_failed = Task(
+                project_id=project_id,
+                title="Dep Failed",
+                status=TaskStatus.FAILED,
+                priority=3,
+            )
+            dep_cancelled = Task(
+                project_id=project_id,
+                title="Dep Cancelled",
+                status=TaskStatus.CANCELLED,
+                priority=3,
+            )
+            session.add(dep_failed)
+            session.add(dep_cancelled)
+            session.flush()
+
+            # Create tasks depending on them
+            task_blocked_by_fail = Task(
+                project_id=project_id,
+                title="Blocked by Fail",
+                status=TaskStatus.TODO,
+                priority=1,
+            )
+            task_blocked_by_cancel = Task(
+                project_id=project_id,
+                title="Blocked by Cancel",
+                status=TaskStatus.TODO,
+                priority=1,
+            )
+            session.add(task_blocked_by_fail)
+            session.add(task_blocked_by_cancel)
+            session.flush()
+
+            session.add(
+                TaskDependency(
+                    task_id=task_blocked_by_fail.id,
+                    depends_on_task_id=dep_failed.id,
+                )
+            )
+            session.add(
+                TaskDependency(
+                    task_id=task_blocked_by_cancel.id,
+                    depends_on_task_id=dep_cancelled.id,
+                )
+            )
+            session.commit()
+
+            # Ensure they are NOT listed as schedulable
+            ready_tasks = list_schedulable_tasks(session, project_id=project_id, limit=10)
+            ready_titles = [task.title for task in ready_tasks]
+
+            assert "Blocked by Fail" not in ready_titles
+            assert "Blocked by Cancel" not in ready_titles
+            assert len(ready_tasks) == 0
+
+    finally:
+        engine.dispose()
+

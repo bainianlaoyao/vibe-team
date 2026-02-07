@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from typing import Any, cast
 
@@ -8,12 +9,24 @@ from sqlmodel import Session, select
 from app.db.enums import TaskStatus
 from app.db.models import Task, TaskDependency
 
+logger = logging.getLogger(__name__)
+
 
 def _build_dependency_map(
     session: Session,
     *,
     candidate_task_ids: list[int],
 ) -> dict[int, set[int]]:
+    """
+    Build a map of task dependencies for the given candidate tasks.
+
+    Args:
+        session: Database session.
+        candidate_task_ids: List of task IDs to resolve dependencies for.
+
+    Returns:
+        dict[int, set[int]]: A dictionary mapping task ID to a set of required dependency task IDs.
+    """
     dependency_map: dict[int, set[int]] = defaultdict(set)
     if not candidate_task_ids:
         return dependency_map
@@ -49,6 +62,20 @@ def list_schedulable_tasks(
     project_id: int,
     limit: int = 50,
 ) -> list[Task]:
+    """
+    List tasks that are ready to be scheduled (status=TODO and all dependencies are DONE).
+
+    Args:
+        session: Database session.
+        project_id: The project ID to filter tasks by.
+        limit: Maximum number of tasks to return.
+
+    Returns:
+        list[Task]: List of schedulable tasks, ordered by priority and creation time.
+
+    Raises:
+        ValueError: If limit is less than or equal to 0.
+    """
     if limit <= 0:
         raise ValueError("limit must be greater than 0")
 
@@ -65,6 +92,7 @@ def list_schedulable_tasks(
         ).all()
     )
     if not candidate_tasks:
+        logger.debug(f"No candidate tasks found for project {project_id}")
         return []
 
     candidate_task_ids = [task.id for task in candidate_tasks if task.id is not None]
@@ -91,14 +119,33 @@ def list_schedulable_tasks(
             for dependency_id in dependency_ids_for_task
         ):
             schedulable.append(task)
+        else:
+            logger.debug(
+                f"Task {task.id} skipped due to unsatisfied dependencies. "
+                f"Dependencies: {dependency_ids_for_task}, Statuses: {dependency_statuses}"
+            )
 
         if len(schedulable) >= limit:
             break
 
+    logger.info(
+        f"Project {project_id}: Found {len(schedulable)} schedulable tasks "
+        f"(scanned {len(candidate_tasks)} candidates)."
+    )
     return schedulable
 
 
 def pick_next_schedulable_task(session: Session, *, project_id: int) -> Task | None:
+    """
+    Pick the next highest priority task that is ready to run.
+
+    Args:
+        session: Database session.
+        project_id: The project ID.
+
+    Returns:
+        Task | None: The next task to run, or None if no tasks are ready.
+    """
     candidates = list_schedulable_tasks(session, project_id=project_id, limit=1)
     if not candidates:
         return None

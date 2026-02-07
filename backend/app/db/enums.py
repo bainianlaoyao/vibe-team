@@ -64,6 +64,10 @@ class CommentStatus(StrEnum):
     RESOLVED = "resolved"
 
 
+class LLMProvider(StrEnum):
+    ANTHROPIC = "anthropic"
+
+
 TASK_TERMINAL_STATUSES: frozenset[TaskStatus] = frozenset(
     {
         TaskStatus.DONE,
