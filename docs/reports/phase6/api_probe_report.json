@@ -1,23 +1,23 @@
 {
-  "generated_at": "2026-02-07T09:32:13.639872+00:00",
+  "generated_at": "2026-02-07T09:39:07.908656+00:00",
   "summary": {
     "scenario_total": 5,
     "scenario_passed": 5,
     "step_total": 31,
     "step_passed": 31,
     "pass_rate": 100.0,
-    "total_duration_ms": 262.13
+    "total_duration_ms": 299.9
   },
   "scenarios": [
     {
       "name": "health_ready",
       "passed": true,
-      "duration_ms": 4.69,
+      "duration_ms": 5.31,
       "steps": [
         {
           "name": "healthz",
           "passed": true,
-          "latency_ms": 3.22,
+          "latency_ms": 3.61,
           "status_code": 200,
           "detail": "service healthy",
           "failure": null
@@ -25,7 +25,7 @@
         {
           "name": "readyz",
           "passed": true,
-          "latency_ms": 1.43,
+          "latency_ms": 1.65,
           "status_code": 200,
           "detail": "service ready",
           "failure": null
@@ -35,12 +35,12 @@
     {
       "name": "agents_tasks_crud",
       "passed": true,
-      "duration_ms": 65.36,
+      "duration_ms": 68.96,
       "steps": [
         {
           "name": "create_agent:Probe CRUD Agent",
           "passed": true,
-          "latency_ms": 10.08,
+          "latency_ms": 10.95,
           "status_code": 201,
           "detail": "agent_id=1",
           "failure": null
@@ -48,7 +48,7 @@
         {
           "name": "list_agents",
           "passed": true,
-          "latency_ms": 3.16,
+          "latency_ms": 3.4,
           "status_code": 200,
           "detail": "agent visible in list",
           "failure": null
@@ -56,7 +56,7 @@
         {
           "name": "get_agent",
           "passed": true,
-          "latency_ms": 2.79,
+          "latency_ms": 2.89,
           "status_code": 200,
           "detail": "agent fetched",
           "failure": null
@@ -64,7 +64,7 @@
         {
           "name": "update_agent",
           "passed": true,
-          "latency_ms": 8.03,
+          "latency_ms": 7.63,
           "status_code": 200,
           "detail": "agent updated",
           "failure": null
@@ -72,7 +72,7 @@
         {
           "name": "create_task:Probe CRUD Task",
           "passed": true,
-          "latency_ms": 10.33,
+          "latency_ms": 11.36,
           "status_code": 201,
           "detail": "task_id=1",
           "failure": null
@@ -80,7 +80,7 @@
         {
           "name": "list_tasks",
           "passed": true,
-          "latency_ms": 3.36,
+          "latency_ms": 4.18,
           "status_code": 200,
           "detail": "task visible in list",
           "failure": null
@@ -88,7 +88,7 @@
         {
           "name": "update_task",
           "passed": true,
-          "latency_ms": 9.67,
+          "latency_ms": 10.69,
           "status_code": 200,
           "detail": "task updated",
           "failure": null
@@ -96,7 +96,7 @@
         {
           "name": "get_task",
           "passed": true,
-          "latency_ms": 2.44,
+          "latency_ms": 2.53,
           "status_code": 200,
           "detail": "task fetched",
           "failure": null
@@ -104,7 +104,7 @@
         {
           "name": "delete_task",
           "passed": true,
-          "latency_ms": 8.24,
+          "latency_ms": 7.7,
           "status_code": 204,
           "detail": "task deleted",
           "failure": null
@@ -112,7 +112,7 @@
         {
           "name": "delete_agent",
           "passed": true,
-          "latency_ms": 7.04,
+          "latency_ms": 7.38,
           "status_code": 204,
           "detail": "agent deleted",
           "failure": null
@@ -122,12 +122,12 @@
     {
       "name": "run_and_commands",
       "passed": true,
-      "duration_ms": 126.05,
+      "duration_ms": 150.66,
       "steps": [
         {
           "name": "create_agent:Probe Runtime Agent",
           "passed": true,
-          "latency_ms": 6.46,
+          "latency_ms": 7.66,
           "status_code": 201,
           "detail": "agent_id=1",
           "failure": null
@@ -135,7 +135,7 @@
         {
           "name": "create_task:Probe Command Task",
           "passed": true,
-          "latency_ms": 7.74,
+          "latency_ms": 10.45,
           "status_code": 201,
           "detail": "task_id=1",
           "failure": null
@@ -143,7 +143,7 @@
         {
           "name": "task_start",
           "passed": true,
-          "latency_ms": 7.65,
+          "latency_ms": 11.29,
           "status_code": 200,
           "detail": "task status=running",
           "failure": null
@@ -151,7 +151,7 @@
         {
           "name": "task_pause",
           "passed": true,
-          "latency_ms": 8.5,
+          "latency_ms": 8.9,
           "status_code": 200,
           "detail": "task status=blocked",
           "failure": null
@@ -159,7 +159,7 @@
         {
           "name": "task_resume",
           "passed": true,
-          "latency_ms": 8.62,
+          "latency_ms": 8.86,
           "status_code": 200,
           "detail": "task status=running",
           "failure": null
@@ -167,7 +167,7 @@
         {
           "name": "task_cancel",
           "passed": true,
-          "latency_ms": 7.91,
+          "latency_ms": 9.34,
           "status_code": 200,
           "detail": "task status=cancelled",
           "failure": null
@@ -175,7 +175,7 @@
         {
           "name": "task_retry",
           "passed": true,
-          "latency_ms": 7.66,
+          "latency_ms": 8.45,
           "status_code": 200,
           "detail": "task status=todo",
           "failure": null
@@ -183,7 +183,7 @@
         {
           "name": "create_task:Probe Run Task",
           "passed": true,
-          "latency_ms": 7.49,
+          "latency_ms": 8.07,
           "status_code": 201,
           "detail": "task_id=2",
           "failure": null
@@ -191,7 +191,7 @@
         {
           "name": "task_run",
           "passed": true,
-          "latency_ms": 55.34,
+          "latency_ms": 68.92,
           "status_code": 200,
           "detail": "run_id=1",
           "failure": null
@@ -209,12 +209,12 @@
     {
       "name": "inbox_close_with_user_input",
       "passed": true,
-      "duration_ms": 42.61,
+      "duration_ms": 51.03,
       "steps": [
         {
           "name": "create_agent:Probe Inbox Agent",
           "passed": true,
-          "latency_ms": 7.38,
+          "latency_ms": 8.6,
           "status_code": 201,
           "detail": "agent_id=2",
           "failure": null
@@ -222,7 +222,7 @@
         {
           "name": "create_task:Probe Inbox Task",
           "passed": true,
-          "latency_ms": 8.12,
+          "latency_ms": 9.47,
           "status_code": 201,
           "detail": "task_id=3",
           "failure": null
@@ -230,7 +230,7 @@
         {
           "name": "tool_request_input",
           "passed": true,
-          "latency_ms": 12.73,
+          "latency_ms": 16.35,
           "status_code": 200,
           "detail": "inbox_item_id=1",
           "failure": null
@@ -238,7 +238,7 @@
         {
           "name": "inbox_close",
           "passed": true,
-          "latency_ms": 10.85,
+          "latency_ms": 13.1,
           "status_code": 200,
           "detail": "inbox item closed",
           "failure": null
@@ -246,7 +246,7 @@
         {
           "name": "inbox_query_closed",
           "passed": true,
-          "latency_ms": 3.39,
+          "latency_ms": 3.34,
           "status_code": 200,
           "detail": "closed item query success",
           "failure": null
@@ -256,12 +256,12 @@
     {
       "name": "events_query_and_stream",
       "passed": true,
-      "duration_ms": 23.42,
+      "duration_ms": 23.94,
       "steps": [
         {
           "name": "events_create_first",
           "passed": true,
-          "latency_ms": 9.03,
+          "latency_ms": 8.82,
           "status_code": 201,
           "detail": "event_id=31",
           "failure": null
@@ -269,7 +269,7 @@
         {
           "name": "events_stream_replay_last",
           "passed": true,
-          "latency_ms": 3.24,
+          "latency_ms": 3.27,
           "status_code": 200,
           "detail": "replayed_event_id=31",
           "failure": null
@@ -277,7 +277,7 @@
         {
           "name": "events_create_second",
           "passed": true,
-          "latency_ms": 8.26,
+          "latency_ms": 8.79,
           "status_code": 201,
           "detail": "event_id=32",
           "failure": null
@@ -285,7 +285,7 @@
         {
           "name": "events_stream_resume",
           "passed": true,
-          "latency_ms": 2.6,
+          "latency_ms": 2.77,
           "status_code": 200,
           "detail": "streamed_event_id=32",
           "failure": null

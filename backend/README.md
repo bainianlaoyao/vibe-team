@@ -146,6 +146,25 @@ uv run python scripts/api_probe.py --fail-on-error
 - JSON 报告：`docs/reports/phase6/api_probe_report.json`
 - Markdown 报告：`docs/reports/phase6/api_probe_report.md`
 
+## 失败恢复回归（Phase 6）
+
+```bash
+cd backend
+uv run python scripts/failure_recovery_probe.py --fail-on-error
+```
+
+默认输出：
+
+- JSON 报告：`docs/reports/phase6/failure_recovery_report.json`
+- Markdown 报告：`docs/reports/phase6/failure_recovery_report.md`
+
+版本冻结前推荐统一执行：
+
+```bash
+cd backend
+make freeze-gate
+```
+
 ## 故障恢复与回滚
 
 - Runbook/SOP：`docs/runbook/phase5_recovery_sop.md`
@@ -178,6 +197,8 @@ make quality
 - `make type-check`
 - `make test`
 - `make api-probe`
+- `make failure-recovery-probe`
+- `make freeze-gate`
 - `make quality`
 
 ## pre-commit

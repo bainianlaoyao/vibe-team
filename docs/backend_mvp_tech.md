@@ -286,6 +286,13 @@ backend/
 4. 增加一键入口：`backend/Makefile` 新增 `api-probe` 目标（`uv run python scripts/api_probe.py --fail-on-error`）。
 5. CI 新增冒烟作业：`.github/workflows/backend-quality.yml` 增加 `api-smoke` job，执行验证器并上传报告 artifact。
 
+实现落地（P6-B，2026-02-07）：
+1. 新增失败恢复回归探针：`backend/scripts/failure_recovery_probe.py`，覆盖 `timeout`、`transient_error`、重复请求幂等、重启恢复四类场景矩阵。
+2. 回归探针验证幂等键防重、指数退避重试、`resume_due_retries` 与 `recover_after_restart` 行为一致性。
+3. 统一报告格式并归档：默认写入 `docs/reports/phase6/failure_recovery_report.json` 与 `docs/reports/phase6/failure_recovery_report.md`。
+4. 增加冻结前必跑入口：`backend/Makefile` 新增 `failure-recovery-probe` 与 `freeze-gate` 目标。
+5. CI 新增回归作业：`.github/workflows/backend-quality.yml` 增加 `failure-recovery-regression` job，执行探针并上传 artifact。
+
 ### 5.1 核心实体
 1. `projects`
 - `id`, `name`, `root_path`, `created_at`, `updated_at`, `version`
