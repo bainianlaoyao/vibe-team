@@ -279,6 +279,13 @@ backend/
 4. 输出运维文档：`docs/runbook/phase5_recovery_sop.md`，覆盖 LLM 超时、DB 锁、文件权限错误的排障与恢复流程。
 5. 固化回滚脚本：`backend/scripts/rollback_with_backup.ps1` 与 `backend/scripts/rollback_with_backup.sh`，默认执行“先备份再 Alembic downgrade”。
 
+实现落地（P6-A，2026-02-07）：
+1. 新增主验证器脚本：`backend/scripts/api_probe.py`，覆盖 `health/ready`、`agents/tasks` CRUD、`run/pause/resume/retry/cancel`、`inbox close(user_input)`、`events` 回放与流式续传。
+2. 验证器采用隔离测试环境：临时 SQLite + 临时工作目录 + `TestClient`，并通过 patch `create_llm_client` 消除外部 LLM 依赖。
+3. 输出结构化报告：默认写入 `docs/reports/phase6/api_probe_report.json` 与 `docs/reports/phase6/api_probe_report.md`，包含通过率、时延与失败样例。
+4. 增加一键入口：`backend/Makefile` 新增 `api-probe` 目标（`uv run python scripts/api_probe.py --fail-on-error`）。
+5. CI 新增冒烟作业：`.github/workflows/backend-quality.yml` 增加 `api-smoke` job，执行验证器并上传报告 artifact。
+
 ### 5.1 核心实体
 1. `projects`
 - `id`, `name`, `root_path`, `created_at`, `updated_at`, `version`

@@ -1,4 +1,4 @@
-.PHONY: sync lint format format-check type-check test quality ci pre-commit-install
+.PHONY: sync lint format format-check type-check test api-probe quality ci pre-commit-install
 
 sync:
 	uv sync --dev
@@ -17,6 +17,9 @@ type-check:
 
 test:
 	uv run pytest
+
+api-probe:
+	uv run python scripts/api_probe.py --fail-on-error
 
 quality: lint format-check type-check test
 

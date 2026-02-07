@@ -22,8 +22,9 @@
 4. Phase 3 状态：`已完成并验收通过（5/5）`。
 5. Phase 4 状态：`已完成并验收通过（4/4）`。
 6. Phase 5 状态：`已完成并验收通过（4/4）`。
-7. 最近里程碑：
-`backend/` 已完成结构化日志、指标聚合、卡死检测与安全审计/故障演练闭环。
+7. Phase 6 状态：`进行中（P6-A 已完成，1/3）`。
+8. 最近里程碑：
+`backend/` 已完成 API 调用器（`scripts/api_probe.py`）与 CI 冒烟作业接入。
 
 ---
 
@@ -317,15 +318,56 @@ Phase 5 验收：
 
 ---
 
-## Phase 6: 联调、验收与发布
+## Phase 6: 极简验证器与后端验收
+
+目标：以最小实现验证后端契约、状态机与恢复能力是否正确。
+
+### 并行任务 P6-A：API 调用器（主验证器）
+
+- Owner: QA + Backend API
+- 依赖：Phase 5 完成
+- 串行任务：
+1. [x] 固化核心场景脚本：`health/ready`、`agents/tasks` CRUD、`run/pause/resume/retry/cancel`、`inbox close(user_input)`、`events` 查询/流式。
+2. [x] 提供一键入口（`uv run pytest ...` 或 `uv run python scripts/api_probe.py`）。
+3. [x] 输出结构化验证报告（JSON + Markdown），记录通过率、时延和失败样例。
+4. [x] 接入 CI 冒烟作业，作为发布前强制检查。
+
+### 并行任务 P6-B：失败恢复回归套件
+
+- Owner: Runtime + QA
+- 依赖：P6-A step 1, P3-C step 5
+- 串行任务：
+1. [ ] 构建异常场景矩阵（超时、临时错误、重复请求、服务重启中断）。
+2. [ ] 验证幂等键、防重、指数退避与重启恢复行为。
+3. [ ] 固化回归报告格式并归档到 `docs/` 或 CI artifact。
+4. [ ] 将该套件纳入每次版本冻结前的必跑检查。
+
+### 并行任务 P6-C：极简前端/调试面板
+
+- Owner: Frontend + Backend API
+- 依赖：P6-A step 1
+- 串行任务：
+1. [ ] 实现极简操作面板（任务列表、任务动作按钮、收件箱关闭输入、事件流查看）。
+2. [ ] 接入最小鉴权与环境配置（本地 token / API key）。
+3. [ ] 使用面板跑通一条完整链路并记录联调问题。
+4. [ ] 明确该面板定位为验收工具，不作为正式产品 UI。
+
+Phase 6 验收：
+1. [ ] API 调用器可一键验证后端核心链路。
+2. [ ] 失败恢复场景可重复复现并输出报告。
+3. [ ] 极简面板可触发核心流程且结果与 API 调用器一致。
+
+---
+
+## Phase 7: 联调、验收与发布
 
 目标：完成前后端联调、端到端验收和首版发布准备。
 
-### 并行任务 P6-A：前后端联调
+### 并行任务 P7-A：前后端联调
 
 - Owner: Backend API + Frontend
-- 依赖：Phase 5 完成
-- 待决策清单（进入 Phase 6 前需确认）：
+- 依赖：Phase 6 完成
+- 待决策清单（进入 Phase 7 前需确认）：
   - [ ] 前端脚手架：Vite + Vue 3（推荐）vs Nuxt 3
   - [ ] API 客户端生成策略：基于 OpenAPI schema 自动生成（openapi-typescript / orval）vs 手写 fetch/axios
   - [ ] 状态管理：Pinia（推荐）vs 纯 Composables
@@ -338,11 +380,11 @@ Phase 5 验收：
 3. [ ] 修复契约不一致问题并更新 API 文档。
 4. [ ] 产出联调问题清单与关闭记录。
 
-### 并行任务 P6-B：端到端验收用例
+### 并行任务 P7-B：端到端验收用例
 
 - Owner: QA
-- 依赖：P6-A step 2
-- 待决策清单（进入 Phase 6 前需确认）：
+- 依赖：P7-A step 2
+- 待决策清单（进入 Phase 7 前需确认）：
   - [ ] E2E 测试范围：纯 API 端到端（pytest + TestClient）vs 浏览器 UI 端到端 vs 两者兼有
   - [ ] 浏览器 E2E 框架（如需要）：Playwright（推荐，Python/JS 双支持）vs Cypress
   - [ ] CI 平台：GitHub Actions（推荐）vs GitLab CI
@@ -353,14 +395,14 @@ Phase 5 验收：
 3. [ ] 执行回归并归档报告。
 4. [ ] 对未覆盖风险给出补救措施。
 
-### 并行任务 P6-C：发布与运维交付
+### 并行任务 P7-C：发布与运维交付
 
 - Owner: Infra
-- 依赖：P6-B step 3
-- 待决策清单（进入 Phase 6 前需确认）：
+- 依赖：P7-B step 3
+- 待决策清单（进入 Phase 7 前需确认）：
   - [ ] 容器化方案：Docker（推荐）vs Podman vs 直接 systemd
   - [ ] 编排方案：docker-compose（推荐，MVP 单机）vs K8s vs 云 PaaS（Fly.io / Railway）
-  - [ ] CI/CD 平台：与 P6-B 统一（GitHub Actions 推荐）
+  - [ ] CI/CD 平台：与 P7-B 统一（GitHub Actions 推荐）
   - [ ] 生产数据库：继续 SQLite（单用户场景可行）vs 升级 PostgreSQL（并发写入需求时）
   - [ ] 密钥管理：`.env` 文件 + docker secrets（MVP）vs Vault
   - [ ] 版本号策略：语义版本 + Git tag + CHANGELOG.md（已有）
@@ -371,17 +413,17 @@ Phase 5 验收：
 3. [ ] 输出上线后 7 天监控指标与值班规则。
 4. [ ] 创建首版里程碑标签并冻结 MVP 范围。
 
-Phase 6 验收：
-1. MVP 主链路全通过。
-2. 文档、脚本、回滚预案齐备。
-3. 满足首版发布条件。
+Phase 7 验收：
+1. [ ] MVP 主链路全通过。
+2. [ ] 文档、脚本、回滚预案齐备。
+3. [ ] 满足首版发布条件。
 
 ---
 
 ## 关键路径与并行建议
 
 关键路径：
-1. `P2-B` -> `P3-A` -> `P3-C0` -> `P3-C` -> `P4-C` -> `P6-A` -> `P6-B`
+1. `P2-B` -> `P3-A` -> `P3-C0` -> `P3-C` -> `P4-C` -> `P6-A` -> `P7-A` -> `P7-B`
 
 并行优先级建议：
 1. 优先保证数据模型与状态机正确性（先正确，再并发）。

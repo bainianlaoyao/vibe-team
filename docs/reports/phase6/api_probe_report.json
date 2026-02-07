@@ -1,0 +1,297 @@
+{
+  "generated_at": "2026-02-07T09:32:13.639872+00:00",
+  "summary": {
+    "scenario_total": 5,
+    "scenario_passed": 5,
+    "step_total": 31,
+    "step_passed": 31,
+    "pass_rate": 100.0,
+    "total_duration_ms": 262.13
+  },
+  "scenarios": [
+    {
+      "name": "health_ready",
+      "passed": true,
+      "duration_ms": 4.69,
+      "steps": [
+        {
+          "name": "healthz",
+          "passed": true,
+          "latency_ms": 3.22,
+          "status_code": 200,
+          "detail": "service healthy",
+          "failure": null
+        },
+        {
+          "name": "readyz",
+          "passed": true,
+          "latency_ms": 1.43,
+          "status_code": 200,
+          "detail": "service ready",
+          "failure": null
+        }
+      ]
+    },
+    {
+      "name": "agents_tasks_crud",
+      "passed": true,
+      "duration_ms": 65.36,
+      "steps": [
+        {
+          "name": "create_agent:Probe CRUD Agent",
+          "passed": true,
+          "latency_ms": 10.08,
+          "status_code": 201,
+          "detail": "agent_id=1",
+          "failure": null
+        },
+        {
+          "name": "list_agents",
+          "passed": true,
+          "latency_ms": 3.16,
+          "status_code": 200,
+          "detail": "agent visible in list",
+          "failure": null
+        },
+        {
+          "name": "get_agent",
+          "passed": true,
+          "latency_ms": 2.79,
+          "status_code": 200,
+          "detail": "agent fetched",
+          "failure": null
+        },
+        {
+          "name": "update_agent",
+          "passed": true,
+          "latency_ms": 8.03,
+          "status_code": 200,
+          "detail": "agent updated",
+          "failure": null
+        },
+        {
+          "name": "create_task:Probe CRUD Task",
+          "passed": true,
+          "latency_ms": 10.33,
+          "status_code": 201,
+          "detail": "task_id=1",
+          "failure": null
+        },
+        {
+          "name": "list_tasks",
+          "passed": true,
+          "latency_ms": 3.36,
+          "status_code": 200,
+          "detail": "task visible in list",
+          "failure": null
+        },
+        {
+          "name": "update_task",
+          "passed": true,
+          "latency_ms": 9.67,
+          "status_code": 200,
+          "detail": "task updated",
+          "failure": null
+        },
+        {
+          "name": "get_task",
+          "passed": true,
+          "latency_ms": 2.44,
+          "status_code": 200,
+          "detail": "task fetched",
+          "failure": null
+        },
+        {
+          "name": "delete_task",
+          "passed": true,
+          "latency_ms": 8.24,
+          "status_code": 204,
+          "detail": "task deleted",
+          "failure": null
+        },
+        {
+          "name": "delete_agent",
+          "passed": true,
+          "latency_ms": 7.04,
+          "status_code": 204,
+          "detail": "agent deleted",
+          "failure": null
+        }
+      ]
+    },
+    {
+      "name": "run_and_commands",
+      "passed": true,
+      "duration_ms": 126.05,
+      "steps": [
+        {
+          "name": "create_agent:Probe Runtime Agent",
+          "passed": true,
+          "latency_ms": 6.46,
+          "status_code": 201,
+          "detail": "agent_id=1",
+          "failure": null
+        },
+        {
+          "name": "create_task:Probe Command Task",
+          "passed": true,
+          "latency_ms": 7.74,
+          "status_code": 201,
+          "detail": "task_id=1",
+          "failure": null
+        },
+        {
+          "name": "task_start",
+          "passed": true,
+          "latency_ms": 7.65,
+          "status_code": 200,
+          "detail": "task status=running",
+          "failure": null
+        },
+        {
+          "name": "task_pause",
+          "passed": true,
+          "latency_ms": 8.5,
+          "status_code": 200,
+          "detail": "task status=blocked",
+          "failure": null
+        },
+        {
+          "name": "task_resume",
+          "passed": true,
+          "latency_ms": 8.62,
+          "status_code": 200,
+          "detail": "task status=running",
+          "failure": null
+        },
+        {
+          "name": "task_cancel",
+          "passed": true,
+          "latency_ms": 7.91,
+          "status_code": 200,
+          "detail": "task status=cancelled",
+          "failure": null
+        },
+        {
+          "name": "task_retry",
+          "passed": true,
+          "latency_ms": 7.66,
+          "status_code": 200,
+          "detail": "task status=todo",
+          "failure": null
+        },
+        {
+          "name": "create_task:Probe Run Task",
+          "passed": true,
+          "latency_ms": 7.49,
+          "status_code": 201,
+          "detail": "task_id=2",
+          "failure": null
+        },
+        {
+          "name": "task_run",
+          "passed": true,
+          "latency_ms": 55.34,
+          "status_code": 200,
+          "detail": "run_id=1",
+          "failure": null
+        },
+        {
+          "name": "task_run_idempotent_replay",
+          "passed": true,
+          "latency_ms": 8.4,
+          "status_code": 200,
+          "detail": "idempotent replay confirmed",
+          "failure": null
+        }
+      ]
+    },
+    {
+      "name": "inbox_close_with_user_input",
+      "passed": true,
+      "duration_ms": 42.61,
+      "steps": [
+        {
+          "name": "create_agent:Probe Inbox Agent",
+          "passed": true,
+          "latency_ms": 7.38,
+          "status_code": 201,
+          "detail": "agent_id=2",
+          "failure": null
+        },
+        {
+          "name": "create_task:Probe Inbox Task",
+          "passed": true,
+          "latency_ms": 8.12,
+          "status_code": 201,
+          "detail": "task_id=3",
+          "failure": null
+        },
+        {
+          "name": "tool_request_input",
+          "passed": true,
+          "latency_ms": 12.73,
+          "status_code": 200,
+          "detail": "inbox_item_id=1",
+          "failure": null
+        },
+        {
+          "name": "inbox_close",
+          "passed": true,
+          "latency_ms": 10.85,
+          "status_code": 200,
+          "detail": "inbox item closed",
+          "failure": null
+        },
+        {
+          "name": "inbox_query_closed",
+          "passed": true,
+          "latency_ms": 3.39,
+          "status_code": 200,
+          "detail": "closed item query success",
+          "failure": null
+        }
+      ]
+    },
+    {
+      "name": "events_query_and_stream",
+      "passed": true,
+      "duration_ms": 23.42,
+      "steps": [
+        {
+          "name": "events_create_first",
+          "passed": true,
+          "latency_ms": 9.03,
+          "status_code": 201,
+          "detail": "event_id=31",
+          "failure": null
+        },
+        {
+          "name": "events_stream_replay_last",
+          "passed": true,
+          "latency_ms": 3.24,
+          "status_code": 200,
+          "detail": "replayed_event_id=31",
+          "failure": null
+        },
+        {
+          "name": "events_create_second",
+          "passed": true,
+          "latency_ms": 8.26,
+          "status_code": 201,
+          "detail": "event_id=32",
+          "failure": null
+        },
+        {
+          "name": "events_stream_resume",
+          "passed": true,
+          "latency_ms": 2.6,
+          "status_code": 200,
+          "detail": "streamed_event_id=32",
+          "failure": null
+        }
+      ]
+    }
+  ],
+  "failed_samples": []
+}

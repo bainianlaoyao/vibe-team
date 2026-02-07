@@ -134,6 +134,18 @@ uv run python scripts/events_stream_stress.py --project-id 1 --total-events 5000
 - `--reconnect-every`：每消费 N 条主动断线重连一次（0 表示关闭）
 - `--timeout-seconds`：消费等待超时
 
+## API 验证器（Phase 6）
+
+```bash
+cd backend
+uv run python scripts/api_probe.py --fail-on-error
+```
+
+默认输出：
+
+- JSON 报告：`docs/reports/phase6/api_probe_report.json`
+- Markdown 报告：`docs/reports/phase6/api_probe_report.md`
+
 ## 故障恢复与回滚
 
 - Runbook/SOP：`docs/runbook/phase5_recovery_sop.md`
@@ -165,6 +177,7 @@ make quality
 - `make format-check`
 - `make type-check`
 - `make test`
+- `make api-probe`
 - `make quality`
 
 ## pre-commit
