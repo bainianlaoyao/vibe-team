@@ -287,11 +287,11 @@ Phase 4 验收：
   - 阈值可配置化：`Settings` 新增 `STUCK_IDLE_TIMEOUT_S`、`STUCK_REPEAT_THRESHOLD`、`STUCK_ERROR_RATE_THRESHOLD`
   - 防重复告警：同一 `run_id` 的同类告警在未关闭前不重复创建（基于 `inbox_items` 去重查询）
 - 串行任务：
-1. [ ] 实现无输出超时检测。
-2. [ ] 实现重复动作哈希检测。
-3. [ ] 实现错误速率阈值检测。
-4. [ ] 命中阈值自动生成 `inbox_items(item_type=await_user_input)` 并附带诊断信息。
-5. [ ] 编写误报/漏报评估测试。
+1. [x] 实现无输出超时检测。
+2. [x] 实现重复动作哈希检测。
+3. [x] 实现错误速率阈值检测。
+4. [x] 命中阈值自动生成 `inbox_items(item_type=await_user_input)` 并附带诊断信息。
+5. [x] 编写误报/漏报评估测试。
 
 ### 并行任务 P5-D：安全审计与故障演练
 

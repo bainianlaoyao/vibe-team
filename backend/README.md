@@ -57,6 +57,10 @@ cd backend
 - `LOG_DB_ENABLED`: 预留 DB 日志写入开关（默认 `false`）
 - `LOG_DB_MIN_LEVEL`: 预留 DB 日志最小级别（默认 `WARNING`）
 - `COST_ALERT_THRESHOLD_USD`: 日成本告警阈值（`<=0` 关闭告警，默认 `0`）
+- `STUCK_IDLE_TIMEOUT_S`: 无输出超时阈值（秒，默认 `600`）
+- `STUCK_REPEAT_THRESHOLD`: 重复动作阈值（0-1，默认 `0.8`）
+- `STUCK_ERROR_RATE_THRESHOLD`: 错误率阈值（0-1，默认 `0.6`）
+- `STUCK_SCAN_INTERVAL_S`: 卡死检测轮询周期（秒，默认 `60`）
 
 ## 数据库初始化与迁移
 

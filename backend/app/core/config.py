@@ -30,6 +30,10 @@ class Settings(BaseModel):
     log_db_enabled: bool = Field(default=False)
     log_db_min_level: str = Field(default="WARNING")
     cost_alert_threshold_usd: Decimal = Field(default=Decimal("0"))
+    stuck_idle_timeout_s: int = Field(default=600, ge=1)
+    stuck_repeat_threshold: float = Field(default=0.8, ge=0, le=1)
+    stuck_error_rate_threshold: float = Field(default=0.6, ge=0, le=1)
+    stuck_scan_interval_s: int = Field(default=60, ge=1)
 
 
 def _to_bool(value: str | None, *, default: bool) -> bool:
@@ -104,6 +108,10 @@ def load_settings() -> Settings:
             os.getenv("COST_ALERT_THRESHOLD_USD"),
             default=Decimal("0"),
         ),
+        stuck_idle_timeout_s=int(os.getenv("STUCK_IDLE_TIMEOUT_S", "600")),
+        stuck_repeat_threshold=float(os.getenv("STUCK_REPEAT_THRESHOLD", "0.8")),
+        stuck_error_rate_threshold=float(os.getenv("STUCK_ERROR_RATE_THRESHOLD", "0.6")),
+        stuck_scan_interval_s=int(os.getenv("STUCK_SCAN_INTERVAL_S", "60")),
     )
 
 

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 
@@ -17,6 +18,7 @@ from app.api.tools import router as tools_router
 from app.core.config import get_settings
 from app.core.logging import TraceContextMiddleware, configure_logging
 from app.db.engine import dispose_engine, get_engine
+from app.runtime import build_stuck_run_detector, run_stuck_detector_loop
 
 
 def create_app() -> FastAPI:
@@ -26,9 +28,21 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         get_engine()
+        detector_task: asyncio.Task[None] | None = None
+        detector = build_stuck_run_detector(settings)
+        detector_task = asyncio.create_task(
+            run_stuck_detector_loop(
+                detector=detector,
+                interval_seconds=settings.stuck_scan_interval_s,
+            )
+        )
         try:
             yield
         finally:
+            if detector_task is not None:
+                detector_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await detector_task
             dispose_engine()
 
     app = FastAPI(

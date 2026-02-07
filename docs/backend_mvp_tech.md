@@ -264,6 +264,14 @@ backend/
 4. 成本阈值告警接入 `app/llm/usage.py`：命中 `COST_ALERT_THRESHOLD_USD` 后写 `alert.raised` 并创建 `inbox_items(await_user_input)`。
 5. 新增回归测试：`tests/test_metrics_api.py` 与 `tests/test_llm_usage.py`，覆盖聚合正确性与成本告警去重。
 
+实现落地（P5-C，2026-02-07）：
+1. 新增卡死检测器：`app/runtime/stuck_detector.py`（`StuckRunDetector`），覆盖无输出超时、重复动作、高错误率三类规则。
+2. 检测命中后自动写 `alert.raised`，并创建 `inbox_items(item_type=await_user_input)`，附带诊断信息与去重 `source_id`。
+3. 防重复告警策略：同一 `run_id + alert_kind` 在未关闭前仅创建一个开放收件箱项。
+4. FastAPI `lifespan` 接入后台轮询协程：`run_stuck_detector_loop`，默认每 `60s` 执行一次检测。
+5. 新增配置项：`STUCK_IDLE_TIMEOUT_S`、`STUCK_REPEAT_THRESHOLD`、`STUCK_ERROR_RATE_THRESHOLD`、`STUCK_SCAN_INTERVAL_S`。
+6. 新增回归测试：`tests/test_stuck_detector.py`，覆盖超时、重复动作、高错误率与误报抑制场景。
+
 ### 5.1 核心实体
 1. `projects`
 - `id`, `name`, `root_path`, `created_at`, `updated_at`, `version`

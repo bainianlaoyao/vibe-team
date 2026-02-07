@@ -15,6 +15,13 @@ from app.runtime.failure_injection import (
     InjectedRunTimeoutError,
     InjectedTransientRunError,
 )
+from app.runtime.stuck_detector import (
+    StuckAlert,
+    StuckAlertKind,
+    StuckRunDetector,
+    build_stuck_run_detector,
+    run_stuck_detector_loop,
+)
 
 __all__ = [
     "DEFAULT_RECOVERY_ACTOR",
@@ -29,5 +36,10 @@ __all__ = [
     "InjectedTransientRunError",
     "RuntimeRecoverySummary",
     "RuntimeRetryPolicy",
+    "StuckAlert",
+    "StuckAlertKind",
+    "StuckRunDetector",
     "TaskRunRuntimeService",
+    "build_stuck_run_detector",
+    "run_stuck_detector_loop",
 ]

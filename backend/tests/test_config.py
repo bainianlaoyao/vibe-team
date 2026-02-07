@@ -44,3 +44,16 @@ def test_load_settings_parses_cost_alert_threshold(monkeypatch: MonkeyPatch) -> 
     monkeypatch.setenv("COST_ALERT_THRESHOLD_USD", "invalid")
     settings = load_settings()
     assert str(settings.cost_alert_threshold_usd) == "0"
+
+
+def test_load_settings_parses_stuck_detector_thresholds(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setenv("STUCK_IDLE_TIMEOUT_S", "120")
+    monkeypatch.setenv("STUCK_REPEAT_THRESHOLD", "0.75")
+    monkeypatch.setenv("STUCK_ERROR_RATE_THRESHOLD", "0.66")
+    monkeypatch.setenv("STUCK_SCAN_INTERVAL_S", "30")
+
+    settings = load_settings()
+    assert settings.stuck_idle_timeout_s == 120
+    assert settings.stuck_repeat_threshold == 0.75
+    assert settings.stuck_error_rate_threshold == 0.66
+    assert settings.stuck_scan_interval_s == 30
