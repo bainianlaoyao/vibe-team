@@ -68,6 +68,32 @@ class LLMProvider(StrEnum):
     ANTHROPIC = "anthropic"
 
 
+class ConversationStatus(StrEnum):
+    ACTIVE = "active"
+    CLOSED = "closed"
+    ARCHIVED = "archived"
+
+
+class MessageRole(StrEnum):
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
+
+
+class MessageType(StrEnum):
+    TEXT = "text"
+    TOOL_CALL = "tool_call"
+    TOOL_RESULT = "tool_result"
+    INTERRUPT = "interrupt"
+    INPUT_REQUEST = "input_request"
+    INPUT_RESPONSE = "input_response"
+
+
+class SessionStatus(StrEnum):
+    CONNECTED = "connected"
+    DISCONNECTED = "disconnected"
+
+
 TASK_TERMINAL_STATUSES: frozenset[TaskStatus] = frozenset(
     {
         TaskStatus.DONE,

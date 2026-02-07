@@ -22,10 +22,14 @@ from sqlmodel import Field, SQLModel
 from app.db.enums import (
     AgentStatus,
     CommentStatus,
+    ConversationStatus,
     DependencyType,
     DocumentType,
     InboxItemType,
     InboxStatus,
+    MessageRole,
+    MessageType,
+    SessionStatus,
     SourceType,
     TaskRunStatus,
     TaskStatus,
@@ -284,3 +288,84 @@ class ApiUsageDaily(SQLModel, table=True):
         default=Decimal("0.0000"),
         sa_column=Column(Numeric(12, 4), nullable=False),
     )
+
+
+class Conversation(SQLModel, table=True):
+    """A conversation between a user and an agent."""
+
+    __tablename__ = "conversations"
+    __table_args__ = (
+        CheckConstraint("version >= 1", name="ck_conversations_version_positive"),
+        Index("ix_conversations_project_status", "project_id", "status"),
+        Index("ix_conversations_agent_created", "agent_id", "created_at"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="projects.id", nullable=False, index=True)
+    agent_id: int = Field(foreign_key="agents.id", nullable=False, index=True)
+    task_id: int | None = Field(default=None, foreign_key="tasks.id", index=True)
+    title: str = Field(sa_column=Column(String(length=200), nullable=False, index=True))
+    status: ConversationStatus = Field(
+        default=ConversationStatus.ACTIVE,
+        sa_column=Column(String(length=32), nullable=False, index=True),
+    )
+    context_json: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSON(), nullable=False),
+    )
+    created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+    closed_at: datetime | None = Field(default=None, nullable=True)
+    version: int = Field(default=1, nullable=False)
+
+
+class Message(SQLModel, table=True):
+    """A message in a conversation."""
+
+    __tablename__ = "messages"
+    __table_args__ = (
+        Index("ix_messages_conversation_created", "conversation_id", "created_at"),
+        Index("ix_messages_conversation_sequence", "conversation_id", "sequence_num"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    conversation_id: int = Field(foreign_key="conversations.id", nullable=False, index=True)
+    role: MessageRole = Field(
+        sa_column=Column(String(length=32), nullable=False, index=True),
+    )
+    message_type: MessageType = Field(
+        default=MessageType.TEXT,
+        sa_column=Column(String(length=32), nullable=False, index=True),
+    )
+    content: str = Field(sa_column=Column(Text(), nullable=False))
+    metadata_json: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSON(), nullable=False),
+    )
+    sequence_num: int = Field(nullable=False, index=True)
+    created_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+    token_count: int | None = Field(default=None, nullable=True)
+
+
+class ConversationSession(SQLModel, table=True):
+    """Tracks active WebSocket sessions for conversations."""
+
+    __tablename__ = "conversation_sessions"
+    __table_args__ = (
+        UniqueConstraint(
+            "conversation_id", "client_id", name="uq_conversation_sessions_conv_client"
+        ),
+        Index("ix_conversation_sessions_status_heartbeat", "status", "last_heartbeat_at"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    conversation_id: int = Field(foreign_key="conversations.id", nullable=False, index=True)
+    client_id: str = Field(sa_column=Column(String(length=64), nullable=False, index=True))
+    status: SessionStatus = Field(
+        default=SessionStatus.CONNECTED,
+        sa_column=Column(String(length=32), nullable=False, index=True),
+    )
+    connected_at: datetime = Field(default_factory=utc_now, nullable=False)
+    disconnected_at: datetime | None = Field(default=None, nullable=True)
+    last_heartbeat_at: datetime = Field(default_factory=utc_now, nullable=False, index=True)
+    last_message_id: int | None = Field(default=None, foreign_key="messages.id", nullable=True)
