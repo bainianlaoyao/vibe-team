@@ -134,6 +134,13 @@ uv run python scripts/events_stream_stress.py --project-id 1 --total-events 5000
 - `--reconnect-every`：每消费 N 条主动断线重连一次（0 表示关闭）
 - `--timeout-seconds`：消费等待超时
 
+## 故障恢复与回滚
+
+- Runbook/SOP：`docs/runbook/phase5_recovery_sop.md`
+- 回滚脚本（含 DB 备份）：
+  - PowerShell: `backend/scripts/rollback_with_backup.ps1`
+  - Shell: `backend/scripts/rollback_with_backup.sh`
+
 ## 检查与测试
 
 ```bash

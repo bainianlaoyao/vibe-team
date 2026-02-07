@@ -172,6 +172,18 @@ def test_cli_tools_call_backend_command_api_and_write_audit(
                 .order_by(event_id.asc())
             ).all()
         )
+        security_events = list(
+            session.exec(
+                select(Event)
+                .where(Event.project_id == cli_tools_context.project_id)
+                .where(
+                    cast(Any, Event.event_type).in_(
+                        ["security.audit.allowed", "security.audit.denied"]
+                    )
+                )
+                .order_by(event_id.asc())
+            ).all()
+        )
 
     assert len(audit_events) == 3
     assert {event.payload_json["tool"] for event in audit_events} == {
@@ -180,3 +192,11 @@ def test_cli_tools_call_backend_command_api_and_write_audit(
         "request_input",
     }
     assert {event.payload_json["outcome"] for event in audit_events} == {"applied"}
+    assert len(security_events) == 4
+    assert {event.event_type for event in security_events} == {"security.audit.allowed"}
+    for event in security_events:
+        payload = event.payload_json
+        assert payload["actor"] == "cli_tool"
+        assert payload["outcome"] == "allowed"
+        assert payload["action"] in {"finish_task", "block_task", "request_input"}
+        assert str(payload["resource"]).startswith("task:")

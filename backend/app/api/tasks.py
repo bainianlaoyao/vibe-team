@@ -7,7 +7,7 @@ from enum import StrEnum
 from typing import Annotated, Any, cast
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
@@ -37,6 +37,7 @@ from app.orchestration.state_machine import (
     validate_initial_status,
 )
 from app.runtime import TaskRunRuntimeService
+from app.security import SecurityAuditOutcome, append_security_audit_event
 
 DEFAULT_TASK_EVENT_ACTOR = "api"
 TASK_INTERVENTION_AUDIT_EVENT_TYPE = "task.intervention.audit"
@@ -622,6 +623,12 @@ def _raise_provider_error(error: LLMProviderError) -> None:
     )
 
 
+def _request_ip(request: Request | None) -> str | None:
+    if request is None or request.client is None:
+        return None
+    return request.client.host
+
+
 def _apply_task_command(
     session: Session,
     *,
@@ -629,6 +636,7 @@ def _apply_task_command(
     command: TaskCommand,
     payload: TaskCommandRequest,
     source: TaskInterventionSource = TaskInterventionSource.SINGLE,
+    request_ip: str | None = None,
 ) -> TaskRead:
     task = _get_task_or_404(session, task_id)
     bind_log_context(trace_id=payload.trace_id, task_id=task_id, run_id=payload.run_id)
@@ -652,6 +660,18 @@ def _apply_task_command(
             error_code="TASK_VERSION_CONFLICT",
             error_message=message,
         )
+        append_security_audit_event(
+            session,
+            project_id=task.project_id,
+            actor=_normalized_optional_text(payload.actor) or DEFAULT_TASK_EVENT_ACTOR,
+            action=f"task.{command.value}",
+            resource=f"task:{task_id}",
+            outcome=SecurityAuditOutcome.DENIED,
+            reason="TASK_VERSION_CONFLICT",
+            ip=request_ip,
+            metadata={"source": source.value, "expected_version": payload.expected_version},
+            trace_id=payload.trace_id,
+        )
         _commit_or_conflict(session)
         raise ApiException(
             status.HTTP_409_CONFLICT,
@@ -674,6 +694,18 @@ def _apply_task_command(
             error_code="INVALID_TASK_COMMAND",
             error_message=str(exc),
         )
+        append_security_audit_event(
+            session,
+            project_id=task.project_id,
+            actor=_normalized_optional_text(payload.actor) or DEFAULT_TASK_EVENT_ACTOR,
+            action=f"task.{command.value}",
+            resource=f"task:{task_id}",
+            outcome=SecurityAuditOutcome.DENIED,
+            reason=f"INVALID_TASK_COMMAND: {exc}",
+            ip=request_ip,
+            metadata={"source": source.value},
+            trace_id=payload.trace_id,
+        )
         _commit_or_conflict(session)
         _raise_invalid_command(str(exc))
     except InvalidTaskTransitionError as exc:
@@ -688,6 +720,18 @@ def _apply_task_command(
             outcome=TaskInterventionOutcome.REJECTED,
             error_code="INVALID_TASK_TRANSITION",
             error_message=str(exc),
+        )
+        append_security_audit_event(
+            session,
+            project_id=task.project_id,
+            actor=_normalized_optional_text(payload.actor) or DEFAULT_TASK_EVENT_ACTOR,
+            action=f"task.{command.value}",
+            resource=f"task:{task_id}",
+            outcome=SecurityAuditOutcome.DENIED,
+            reason=f"INVALID_TASK_TRANSITION: {exc}",
+            ip=request_ip,
+            metadata={"source": source.value},
+            trace_id=payload.trace_id,
         )
         _commit_or_conflict(session)
         _raise_invalid_transition(str(exc))
@@ -712,6 +756,18 @@ def _apply_task_command(
         previous_status=previous_status,
         current_status=target_status,
         outcome=TaskInterventionOutcome.APPLIED,
+    )
+    append_security_audit_event(
+        session,
+        project_id=task.project_id,
+        actor=_normalized_optional_text(payload.actor) or DEFAULT_TASK_EVENT_ACTOR,
+        action=f"task.{command.value}",
+        resource=f"task:{task_id}",
+        outcome=SecurityAuditOutcome.ALLOWED,
+        reason=f"status transitioned to {target_status.value}",
+        ip=request_ip,
+        metadata={"source": source.value},
+        trace_id=payload.trace_id,
     )
 
     _commit_or_conflict(session)
@@ -923,6 +979,7 @@ def update_task(task_id: int, payload: TaskUpdate, session: DbSession) -> TaskRe
 def broadcast_task_command(
     command: TaskCommand,
     payload: TaskCommandBroadcastRequest,
+    request: Request,
     session: DbSession,
 ) -> TaskCommandBroadcastResponse:
     _require_project(session, payload.project_id)
@@ -952,6 +1009,7 @@ def broadcast_task_command(
                 command=command,
                 payload=command_payload,
                 source=TaskInterventionSource.BROADCAST,
+                request_ip=_request_ip(request),
             )
             applied_count += 1
             items.append(
@@ -1013,7 +1071,12 @@ def broadcast_task_command(
         ),
     ),
 )
-def run_task(task_id: int, payload: TaskRunExecuteRequest, session: DbSession) -> TaskRunRead:
+def run_task(
+    task_id: int,
+    payload: TaskRunExecuteRequest,
+    request: Request,
+    session: DbSession,
+) -> TaskRunRead:
     task = _get_task_or_404(session, task_id)
     bind_log_context(trace_id=payload.trace_id, task_id=task_id)
     assignee = _resolve_task_assignee(task, session)
@@ -1057,12 +1120,12 @@ def run_task(task_id: int, payload: TaskRunExecuteRequest, session: DbSession) -
             actor=payload.actor,
         )
 
-        request = _build_llm_request(payload, provider=provider, model=model, task_id=task_id)
+        llm_request = _build_llm_request(payload, provider=provider, model=model, task_id=task_id)
         run = asyncio.run(
             runtime_service.execute_run(
                 session=session,
                 run_id=run.id,
-                request=request,
+                request=llm_request,
                 trace_id=payload.trace_id,
                 actor=payload.actor or "runtime",
                 timeout_seconds=payload.timeout_seconds,
@@ -1087,6 +1150,19 @@ def run_task(task_id: int, payload: TaskRunExecuteRequest, session: DbSession) -
             "TASK_RUN_NOT_FOUND",
             f"Task run {run.id} does not exist.",
         )
+    append_security_audit_event(
+        session,
+        project_id=task.project_id,
+        actor=_normalized_optional_text(payload.actor) or "runtime",
+        action="task.run",
+        resource=f"task:{task_id}",
+        outcome=SecurityAuditOutcome.ALLOWED,
+        reason=f"run_status={run_status.value}",
+        ip=_request_ip(request),
+        metadata={"run_id": run.id, "provider": provider, "model": model},
+        trace_id=payload.trace_id,
+    )
+    _commit_or_conflict(session)
     logger.info(
         "task.run.completed",
         task_id=task_id,
@@ -1109,8 +1185,19 @@ def run_task(task_id: int, payload: TaskRunExecuteRequest, session: DbSession) -
         ),
     ),
 )
-def pause_task(task_id: int, payload: TaskCommandRequest, session: DbSession) -> TaskRead:
-    return _apply_task_command(session, task_id=task_id, command=TaskCommand.PAUSE, payload=payload)
+def pause_task(
+    task_id: int,
+    payload: TaskCommandRequest,
+    request: Request,
+    session: DbSession,
+) -> TaskRead:
+    return _apply_task_command(
+        session,
+        task_id=task_id,
+        command=TaskCommand.PAUSE,
+        payload=payload,
+        request_ip=_request_ip(request),
+    )
 
 
 @router.post(
@@ -1125,12 +1212,18 @@ def pause_task(task_id: int, payload: TaskCommandRequest, session: DbSession) ->
         ),
     ),
 )
-def resume_task(task_id: int, payload: TaskCommandRequest, session: DbSession) -> TaskRead:
+def resume_task(
+    task_id: int,
+    payload: TaskCommandRequest,
+    request: Request,
+    session: DbSession,
+) -> TaskRead:
     return _apply_task_command(
         session,
         task_id=task_id,
         command=TaskCommand.RESUME,
         payload=payload,
+        request_ip=_request_ip(request),
     )
 
 
@@ -1146,8 +1239,19 @@ def resume_task(task_id: int, payload: TaskCommandRequest, session: DbSession) -
         ),
     ),
 )
-def retry_task(task_id: int, payload: TaskCommandRequest, session: DbSession) -> TaskRead:
-    return _apply_task_command(session, task_id=task_id, command=TaskCommand.RETRY, payload=payload)
+def retry_task(
+    task_id: int,
+    payload: TaskCommandRequest,
+    request: Request,
+    session: DbSession,
+) -> TaskRead:
+    return _apply_task_command(
+        session,
+        task_id=task_id,
+        command=TaskCommand.RETRY,
+        payload=payload,
+        request_ip=_request_ip(request),
+    )
 
 
 @router.post(
@@ -1162,12 +1266,18 @@ def retry_task(task_id: int, payload: TaskCommandRequest, session: DbSession) ->
         ),
     ),
 )
-def cancel_task(task_id: int, payload: TaskCommandRequest, session: DbSession) -> TaskRead:
+def cancel_task(
+    task_id: int,
+    payload: TaskCommandRequest,
+    request: Request,
+    session: DbSession,
+) -> TaskRead:
     return _apply_task_command(
         session,
         task_id=task_id,
         command=TaskCommand.CANCEL,
         payload=payload,
+        request_ip=_request_ip(request),
     )
 
 

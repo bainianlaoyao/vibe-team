@@ -272,6 +272,13 @@ backend/
 5. 新增配置项：`STUCK_IDLE_TIMEOUT_S`、`STUCK_REPEAT_THRESHOLD`、`STUCK_ERROR_RATE_THRESHOLD`、`STUCK_SCAN_INTERVAL_S`。
 6. 新增回归测试：`tests/test_stuck_detector.py`，覆盖超时、重复动作、高错误率与误报抑制场景。
 
+实现落地（P5-D，2026-02-07）：
+1. 新增安全审计模块：`app/security/audit.py`，统一 `security.audit.allowed|denied` 事件与字段契约（`actor/action/resource/outcome/reason/ip/metadata`）。
+2. 关键命令路径接入审计：`app/api/tasks.py` 与 `app/api/tools.py` 在允许/拒绝场景写入安全审计事件。
+3. 扩展故障注入模式：`FailureMode` 新增 `database_lock` 与 `file_permission_error`，并补齐异常类型与单测。
+4. 输出运维文档：`docs/runbook/phase5_recovery_sop.md`，覆盖 LLM 超时、DB 锁、文件权限错误的排障与恢复流程。
+5. 固化回滚脚本：`backend/scripts/rollback_with_backup.ps1` 与 `backend/scripts/rollback_with_backup.sh`，默认执行“先备份再 Alembic downgrade”。
+
 ### 5.1 核心实体
 1. `projects`
 - `id`, `name`, `root_path`, `created_at`, `updated_at`, `version`

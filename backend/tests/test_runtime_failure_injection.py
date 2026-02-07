@@ -6,6 +6,8 @@ from app.runtime.failure_injection import (
     FailureInjectionRule,
     FailureInjectorStub,
     FailureMode,
+    InjectedDatabaseLockError,
+    InjectedFilePermissionError,
     InjectedProcessRestartInterruptError,
     InjectedRunTimeoutError,
     InjectedTransientRunError,
@@ -74,3 +76,33 @@ def test_failure_injector_does_not_affect_other_points() -> None:
 
     injector.inject(point="tool.invoke")
     assert injector.invocation_count(point="tool.invoke") == 1
+
+
+def test_failure_injector_can_inject_database_lock() -> None:
+    injector = FailureInjectorStub(
+        [
+            FailureInjectionRule(
+                mode=FailureMode.DATABASE_LOCK,
+                point="db.commit",
+                at_invocation=1,
+            )
+        ]
+    )
+
+    with pytest.raises(InjectedDatabaseLockError):
+        injector.inject(point="db.commit")
+
+
+def test_failure_injector_can_inject_file_permission_error() -> None:
+    injector = FailureInjectorStub(
+        [
+            FailureInjectionRule(
+                mode=FailureMode.FILE_PERMISSION_ERROR,
+                point="file.write",
+                at_invocation=1,
+            )
+        ]
+    )
+
+    with pytest.raises(InjectedFilePermissionError):
+        injector.inject(point="file.write")

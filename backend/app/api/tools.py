@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Any, cast
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
@@ -16,6 +16,7 @@ from app.db.session import get_session
 from app.events.schemas import TASK_STATUS_CHANGED_EVENT_TYPE, build_task_status_payload
 from app.exporters import sync_tasks_markdown_for_project_if_enabled
 from app.orchestration.state_machine import InvalidTaskTransitionError, ensure_status_transition
+from app.security import SecurityAuditOutcome, append_security_audit_event
 
 DbSession = Annotated[Session, Depends(get_session)]
 
@@ -209,6 +210,12 @@ def _find_idempotent_response(
     return None
 
 
+def _request_ip(request: Request) -> str | None:
+    if request.client is None:
+        return None
+    return request.client.host
+
+
 def _append_tool_audit_event(
     session: Session,
     *,
@@ -256,7 +263,11 @@ def _append_tool_audit_event(
         ),
     ),
 )
-def finish_task(payload: FinishTaskCommandRequest, session: DbSession) -> ToolCommandResponse:
+def finish_task(
+    payload: FinishTaskCommandRequest,
+    request: Request,
+    session: DbSession,
+) -> ToolCommandResponse:
     task = _get_task_or_404(session, payload.task_id)
     bind_log_context(trace_id=payload.trace_id, task_id=payload.task_id)
     actor = _normalized_optional_text(payload.actor) or DEFAULT_TOOL_ACTOR
@@ -270,6 +281,19 @@ def finish_task(payload: FinishTaskCommandRequest, session: DbSession) -> ToolCo
         idempotency_key=idempotency_key,
     )
     if replayed is not None:
+        append_security_audit_event(
+            session,
+            project_id=task.project_id,
+            actor=actor,
+            action="finish_task",
+            resource=f"task:{payload.task_id}",
+            outcome=SecurityAuditOutcome.ALLOWED,
+            reason="idempotency_replay",
+            ip=_request_ip(request),
+            metadata={"idempotency_key": idempotency_key},
+            trace_id=payload.trace_id,
+        )
+        _commit_or_conflict(session)
         return replayed.model_copy(update={"idempotency_hit": True})
 
     try:
@@ -281,6 +305,18 @@ def finish_task(payload: FinishTaskCommandRequest, session: DbSession) -> ToolCo
             actor=actor,
         )
     except ApiException as exc:
+        append_security_audit_event(
+            session,
+            project_id=task.project_id,
+            actor=actor,
+            action="finish_task",
+            resource=f"task:{payload.task_id}",
+            outcome=SecurityAuditOutcome.DENIED,
+            reason=f"{exc.code}: {exc.message}",
+            ip=_request_ip(request),
+            metadata={"idempotency_key": idempotency_key},
+            trace_id=payload.trace_id,
+        )
         _append_tool_audit_event(
             session,
             task=task,
@@ -315,6 +351,18 @@ def finish_task(payload: FinishTaskCommandRequest, session: DbSession) -> ToolCo
         outcome="applied",
         response=response,
     )
+    append_security_audit_event(
+        session,
+        project_id=task.project_id,
+        actor=actor,
+        action="finish_task",
+        resource=f"task:{payload.task_id}",
+        outcome=SecurityAuditOutcome.ALLOWED,
+        reason="task transitioned to done",
+        ip=_request_ip(request),
+        metadata={"idempotency_key": idempotency_key},
+        trace_id=payload.trace_id,
+    )
     _commit_or_conflict(session)
     sync_tasks_markdown_for_project_if_enabled(session=session, project_id=task.project_id)
     logger.info(
@@ -338,7 +386,11 @@ def finish_task(payload: FinishTaskCommandRequest, session: DbSession) -> ToolCo
         ),
     ),
 )
-def block_task(payload: BlockTaskCommandRequest, session: DbSession) -> ToolCommandResponse:
+def block_task(
+    payload: BlockTaskCommandRequest,
+    request: Request,
+    session: DbSession,
+) -> ToolCommandResponse:
     task = _get_task_or_404(session, payload.task_id)
     bind_log_context(trace_id=payload.trace_id, task_id=payload.task_id)
     actor = _normalized_optional_text(payload.actor) or DEFAULT_TOOL_ACTOR
@@ -352,6 +404,19 @@ def block_task(payload: BlockTaskCommandRequest, session: DbSession) -> ToolComm
         idempotency_key=idempotency_key,
     )
     if replayed is not None:
+        append_security_audit_event(
+            session,
+            project_id=task.project_id,
+            actor=actor,
+            action="block_task",
+            resource=f"task:{payload.task_id}",
+            outcome=SecurityAuditOutcome.ALLOWED,
+            reason="idempotency_replay",
+            ip=_request_ip(request),
+            metadata={"idempotency_key": idempotency_key},
+            trace_id=payload.trace_id,
+        )
+        _commit_or_conflict(session)
         return replayed.model_copy(update={"idempotency_hit": True})
 
     try:
@@ -363,6 +428,18 @@ def block_task(payload: BlockTaskCommandRequest, session: DbSession) -> ToolComm
             actor=actor,
         )
     except ApiException as exc:
+        append_security_audit_event(
+            session,
+            project_id=task.project_id,
+            actor=actor,
+            action="block_task",
+            resource=f"task:{payload.task_id}",
+            outcome=SecurityAuditOutcome.DENIED,
+            reason=f"{exc.code}: {exc.message}",
+            ip=_request_ip(request),
+            metadata={"idempotency_key": idempotency_key},
+            trace_id=payload.trace_id,
+        )
         _append_tool_audit_event(
             session,
             task=task,
@@ -397,6 +474,18 @@ def block_task(payload: BlockTaskCommandRequest, session: DbSession) -> ToolComm
         outcome="applied",
         response=response,
     )
+    append_security_audit_event(
+        session,
+        project_id=task.project_id,
+        actor=actor,
+        action="block_task",
+        resource=f"task:{payload.task_id}",
+        outcome=SecurityAuditOutcome.ALLOWED,
+        reason="task transitioned to blocked",
+        ip=_request_ip(request),
+        metadata={"idempotency_key": idempotency_key},
+        trace_id=payload.trace_id,
+    )
     _commit_or_conflict(session)
     sync_tasks_markdown_for_project_if_enabled(session=session, project_id=task.project_id)
     logger.info(
@@ -420,7 +509,11 @@ def block_task(payload: BlockTaskCommandRequest, session: DbSession) -> ToolComm
         ),
     ),
 )
-def request_input(payload: RequestInputCommandRequest, session: DbSession) -> ToolCommandResponse:
+def request_input(
+    payload: RequestInputCommandRequest,
+    request: Request,
+    session: DbSession,
+) -> ToolCommandResponse:
     task = _get_task_or_404(session, payload.task_id)
     bind_log_context(trace_id=payload.trace_id, task_id=payload.task_id)
     actor = _normalized_optional_text(payload.actor) or DEFAULT_TOOL_ACTOR
@@ -434,6 +527,19 @@ def request_input(payload: RequestInputCommandRequest, session: DbSession) -> To
         idempotency_key=idempotency_key,
     )
     if replayed is not None:
+        append_security_audit_event(
+            session,
+            project_id=task.project_id,
+            actor=actor,
+            action="request_input",
+            resource=f"task:{payload.task_id}",
+            outcome=SecurityAuditOutcome.ALLOWED,
+            reason="idempotency_replay",
+            ip=_request_ip(request),
+            metadata={"idempotency_key": idempotency_key},
+            trace_id=payload.trace_id,
+        )
+        _commit_or_conflict(session)
         return replayed.model_copy(update={"idempotency_hit": True})
 
     try:
@@ -445,6 +551,18 @@ def request_input(payload: RequestInputCommandRequest, session: DbSession) -> To
             actor=actor,
         )
     except ApiException as exc:
+        append_security_audit_event(
+            session,
+            project_id=task.project_id,
+            actor=actor,
+            action="request_input",
+            resource=f"task:{payload.task_id}",
+            outcome=SecurityAuditOutcome.DENIED,
+            reason=f"{exc.code}: {exc.message}",
+            ip=_request_ip(request),
+            metadata={"idempotency_key": idempotency_key},
+            trace_id=payload.trace_id,
+        )
         _append_tool_audit_event(
             session,
             task=task,
@@ -519,6 +637,18 @@ def request_input(payload: RequestInputCommandRequest, session: DbSession) -> To
         trace_id=payload.trace_id,
         outcome="applied",
         response=response,
+    )
+    append_security_audit_event(
+        session,
+        project_id=task.project_id,
+        actor=actor,
+        action="request_input",
+        resource=f"task:{payload.task_id}",
+        outcome=SecurityAuditOutcome.ALLOWED,
+        reason="task blocked and inbox item created",
+        ip=_request_ip(request),
+        metadata={"idempotency_key": idempotency_key, "inbox_item_id": inbox_item.id},
+        trace_id=payload.trace_id,
     )
     _commit_or_conflict(session)
     sync_tasks_markdown_for_project_if_enabled(session=session, project_id=task.project_id)

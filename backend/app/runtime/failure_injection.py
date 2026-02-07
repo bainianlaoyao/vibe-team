@@ -8,6 +8,8 @@ class FailureMode(StrEnum):
     TIMEOUT = "timeout"
     TRANSIENT_ERROR = "transient_error"
     PROCESS_RESTART_INTERRUPT = "process_restart_interrupt"
+    DATABASE_LOCK = "database_lock"
+    FILE_PERMISSION_ERROR = "file_permission_error"
 
 
 class InjectedRunTimeoutError(TimeoutError):
@@ -20,6 +22,14 @@ class InjectedTransientRunError(RuntimeError):
 
 class InjectedProcessRestartInterruptError(RuntimeError):
     """Raised by the failure injector to emulate in-flight run interruption on restart."""
+
+
+class InjectedDatabaseLockError(RuntimeError):
+    """Raised by the failure injector to emulate database lock contention."""
+
+
+class InjectedFilePermissionError(PermissionError):
+    """Raised by the failure injector to emulate file permission errors."""
 
 
 @dataclass(slots=True)
@@ -67,4 +77,8 @@ def _to_failure_exception(*, mode: FailureMode, point: str, invocation: int) -> 
         return InjectedTransientRunError(message)
     if mode == FailureMode.PROCESS_RESTART_INTERRUPT:
         return InjectedProcessRestartInterruptError(message)
+    if mode == FailureMode.DATABASE_LOCK:
+        return InjectedDatabaseLockError(message)
+    if mode == FailureMode.FILE_PERMISSION_ERROR:
+        return InjectedFilePermissionError(message)
     raise RuntimeError(f"Unsupported failure mode: {mode}")

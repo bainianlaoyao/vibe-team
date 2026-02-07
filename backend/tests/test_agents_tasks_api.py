@@ -414,6 +414,18 @@ def test_task_commands_and_transitions_write_event_trace_id(api_context: ApiTest
                 .order_by(event_id.asc())
             ).all()
         )
+        security_events = list(
+            session.exec(
+                select(Event)
+                .where(Event.project_id == api_context.project_id)
+                .where(
+                    cast(Any, Event.event_type).in_(
+                        ["security.audit.allowed", "security.audit.denied"]
+                    )
+                )
+                .order_by(event_id.asc())
+            ).all()
+        )
 
     task_events = [event for event in events if event.payload_json.get("task_id") == task_id]
     assert [event.payload_json["status"] for event in task_events] == [
@@ -428,6 +440,13 @@ def test_task_commands_and_transitions_write_event_trace_id(api_context: ApiTest
     assert task_events[1].trace_id == "trace-start-task"
     assert task_events[3].trace_id == "trace-resume-task"
     assert task_events[4].trace_id == "trace-cancel-task"
+    assert len(security_events) == 3
+    assert {event.event_type for event in security_events} == {"security.audit.allowed"}
+    assert {event.payload_json["action"] for event in security_events} == {
+        "task.pause",
+        "task.resume",
+        "task.cancel",
+    }
 
 
 def test_broadcast_pause_applies_to_running_tasks_and_writes_audit_events(
@@ -550,6 +569,18 @@ def test_task_command_expected_version_conflict_writes_audit_event(
                 .order_by(event_id.asc())
             ).all()
         )
+        security_events = list(
+            session.exec(
+                select(Event)
+                .where(Event.project_id == api_context.project_id)
+                .where(
+                    cast(Any, Event.event_type).in_(
+                        ["security.audit.allowed", "security.audit.denied"]
+                    )
+                )
+                .order_by(event_id.asc())
+            ).all()
+        )
     task_audits = [event for event in audit_events if event.payload_json.get("task_id") == task_id]
     assert len(task_audits) == 2
     assert [event.payload_json["outcome"] for event in task_audits] == ["applied", "conflict"]
@@ -557,6 +588,12 @@ def test_task_command_expected_version_conflict_writes_audit_event(
     assert conflict_payload["expected_version"] == expected_version
     assert conflict_payload["actual_version"] == expected_version + 1
     assert conflict_payload["error_code"] == "TASK_VERSION_CONFLICT"
+    assert len(security_events) == 2
+    assert [event.event_type for event in security_events] == [
+        "security.audit.allowed",
+        "security.audit.denied",
+    ]
+    assert "TASK_VERSION_CONFLICT" in str(security_events[1].payload_json["reason"])
 
 
 def test_run_task_endpoint_executes_and_is_idempotent(
