@@ -18,6 +18,7 @@ from app.db.enums import TASK_RUN_TERMINAL_STATUSES, TaskRunStatus, TaskStatus
 from app.db.models import Agent, Event, Project, Task, TaskRun, utc_now
 from app.db.session import get_session
 from app.events.schemas import TASK_STATUS_CHANGED_EVENT_TYPE, build_task_status_payload
+from app.exporters import sync_tasks_markdown_for_project_if_enabled
 from app.llm import (
     LLMErrorCode,
     LLMMessage,
@@ -570,6 +571,14 @@ def _transition_task_status_for_run(
     )
     _commit_or_conflict(session)
     session.refresh(task)
+    _sync_tasks_md_if_enabled(session, project_id=task.project_id)
+
+
+def _sync_tasks_md_if_enabled(session: Session, *, project_id: int) -> None:
+    sync_tasks_markdown_for_project_if_enabled(
+        session=session,
+        project_id=project_id,
+    )
 
 
 def _build_llm_request(
@@ -704,6 +713,7 @@ def _apply_task_command(
 
     _commit_or_conflict(session)
     session.refresh(task)
+    _sync_tasks_md_if_enabled(session, project_id=task.project_id)
     return TaskRead.model_validate(task)
 
 
@@ -797,6 +807,7 @@ def create_task(payload: TaskCreate, session: DbSession) -> TaskRead:
     )
     _commit_or_conflict(session)
     session.refresh(task)
+    _sync_tasks_md_if_enabled(session, project_id=task.project_id)
     return TaskRead.model_validate(task)
 
 
@@ -871,6 +882,8 @@ def update_task(task_id: int, payload: TaskUpdate, session: DbSession) -> TaskRe
 
     _commit_or_conflict(session)
     session.refresh(task)
+    if status_changed:
+        _sync_tasks_md_if_enabled(session, project_id=task.project_id)
     return TaskRead.model_validate(task)
 
 

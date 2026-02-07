@@ -1,3 +1,6 @@
+# mypy: disable-error-code="no-untyped-def,call-arg"
+
+import asyncio
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -26,10 +29,14 @@ from app.llm.providers.claude_code import (
 class AsyncMockContextManager:
     def __init__(self, mock_client):
         self.mock_client = mock_client
+
     async def __aenter__(self):
         return self.mock_client
+
     async def __aexit__(self, exc_type, exc, tb):
-        pass
+        _ = (exc_type, exc, tb)
+        return None
+
 
 @pytest.fixture
 def mock_client():
@@ -38,10 +45,14 @@ def mock_client():
     client.receive_response = MagicMock()
     return client
 
+
 @pytest.fixture
 def adapter(mock_client):
-    factory = lambda options: AsyncMockContextManager(mock_client)
+    def factory(_options):
+        return AsyncMockContextManager(mock_client)
+
     return ClaudeCodeAdapter(client_factory=factory)
+
 
 @pytest.fixture
 def sample_request():
@@ -52,72 +63,102 @@ def sample_request():
         session_id="test-session",
     )
 
-@pytest.mark.asyncio
-async def test_generate_success(adapter, mock_client, sample_request):
-    # Setup mock stream
-    async def mock_stream():
-        yield AssistantMessage(content=[TextBlock(text="Hello world")])
-        yield AssistantMessage(content=[ToolUseBlock(id="call_1", name="test_tool", input={"arg": 1})])
-        yield ResultMessage(
-            session_id="new-session",
-            result="Success",
-            subtype="completed",
-            usage={"input_tokens": 10, "output_tokens": 5},
-            total_cost_usd=0.00123
+
+def test_generate_success(adapter, mock_client, sample_request):
+    async def run_test() -> None:
+        async def mock_stream():
+            yield AssistantMessage(
+                content=[TextBlock(text="Hello world")],
+                model="claude-sonnet-4-5",
+            )
+            yield AssistantMessage(
+                content=[ToolUseBlock(id="call_1", name="test_tool", input={"arg": 1})],
+                model="claude-sonnet-4-5",
+            )
+            yield ResultMessage(
+                subtype="completed",
+                duration_ms=20,
+                duration_api_ms=10,
+                is_error=False,
+                num_turns=1,
+                session_id="new-session",
+                result="Success",
+                usage={"input_tokens": 10, "output_tokens": 5},
+                total_cost_usd=0.00123,
+            )
+
+        mock_client.receive_response.return_value.__aiter__.side_effect = mock_stream
+
+        with patch("app.llm.providers.claude_code.resolve_claude_auth") as mock_auth:
+            mock_auth.return_value = MagicMock(settings_path=None, env={})
+            response = await adapter.generate(sample_request)
+
+        assert response.text == "Hello world"
+        assert response.session_id == "new-session"
+        assert len(response.tool_calls) == 1
+        assert response.tool_calls[0] == LLMToolCall(
+            id="call_1",
+            name="test_tool",
+            arguments={"arg": 1},
         )
+        assert response.usage.token_in == 10
+        assert response.usage.token_out == 5
+        assert response.usage.cost_usd == Decimal("0.0012")  # Quantized
 
-    mock_client.receive_response.return_value.__aiter__.side_effect = mock_stream
+    asyncio.run(run_test())
 
-    with patch("app.llm.providers.claude_code.resolve_claude_auth") as mock_auth:
-        mock_auth.return_value = MagicMock(settings_path=None, env={})
-        response = await adapter.generate(sample_request)
 
-    assert response.text == "Hello world"
-    assert response.session_id == "new-session"
-    assert len(response.tool_calls) == 1
-    assert response.tool_calls[0] == LLMToolCall(id="call_1", name="test_tool", arguments={"arg": 1})
-    assert response.usage.token_in == 10
-    assert response.usage.token_out == 5
-    assert response.usage.cost_usd == Decimal("0.0012")  # Quantized
-
-@pytest.mark.asyncio
-async def test_generate_cli_not_found(adapter, sample_request):
-    def factory_fail(options):
+def test_generate_cli_not_found(adapter, sample_request):
+    def factory_fail(_options):
         raise CLINotFoundError("CLI not found")
 
     adapter._client_factory = factory_fail
 
-    with patch("app.llm.providers.claude_code.resolve_claude_auth"):
-        with pytest.raises(LLMProviderError) as exc:
-            await adapter.generate(sample_request)
-        assert exc.value.code == LLMErrorCode.PROVIDER_NOT_FOUND
-        assert not exc.value.retryable
+    async def run_test() -> None:
+        with patch("app.llm.providers.claude_code.resolve_claude_auth"):
+            with pytest.raises(LLMProviderError) as exc:
+                await adapter.generate(sample_request)
+            assert exc.value.code == LLMErrorCode.PROVIDER_NOT_FOUND
+            assert not exc.value.retryable
 
-@pytest.mark.asyncio
-async def test_generate_connection_error(adapter, sample_request):
-    def factory_fail(options):
+    asyncio.run(run_test())
+
+
+def test_generate_connection_error(adapter, sample_request):
+    def factory_fail(_options):
         raise CLIConnectionError("Connection failed")
 
     adapter._client_factory = factory_fail
 
-    with patch("app.llm.providers.claude_code.resolve_claude_auth"):
-        with pytest.raises(LLMProviderError) as exc:
-            await adapter.generate(sample_request)
-        assert exc.value.code == LLMErrorCode.PROVIDER_UNAVAILABLE
-        assert exc.value.retryable
+    async def run_test() -> None:
+        with patch("app.llm.providers.claude_code.resolve_claude_auth"):
+            with pytest.raises(LLMProviderError) as exc:
+                await adapter.generate(sample_request)
+            assert exc.value.code == LLMErrorCode.PROVIDER_UNAVAILABLE
+            assert exc.value.retryable
 
-@pytest.mark.asyncio
-async def test_protocol_error_no_result(adapter, mock_client, sample_request):
-    async def empty_stream():
-        if False: yield  # make it a generator
+    asyncio.run(run_test())
 
-    mock_client.receive_response.return_value.__aiter__.side_effect = empty_stream
 
-    with patch("app.llm.providers.claude_code.resolve_claude_auth"):
-        with pytest.raises(LLMProviderError) as exc:
-            await adapter.generate(sample_request)
-        assert exc.value.code == LLMErrorCode.PROVIDER_PROTOCOL_ERROR
-        assert "without ResultMessage" in exc.value.message
+def test_protocol_error_no_result(adapter, mock_client, sample_request):
+    async def run_test() -> None:
+        async def empty_stream():
+            if False:
+                yield AssistantMessage(
+                    content=[TextBlock(text="never")],
+                    model="claude-sonnet-4-5",
+                )
+
+        mock_client.receive_response.return_value.__aiter__.side_effect = empty_stream
+
+        with patch("app.llm.providers.claude_code.resolve_claude_auth"):
+            with pytest.raises(LLMProviderError) as exc:
+                await adapter.generate(sample_request)
+            assert exc.value.code == LLMErrorCode.PROVIDER_PROTOCOL_ERROR
+            assert "without ResultMessage" in exc.value.message
+
+    asyncio.run(run_test())
+
 
 def test_extract_last_user_prompt():
     messages = [
@@ -132,8 +173,15 @@ def test_extract_last_user_prompt():
         _extract_last_user_prompt([LLMMessage(role=LLMRole.ASSISTANT, content="hi")])
     assert exc.value.code == LLMErrorCode.INVALID_REQUEST
 
+
 def test_extract_usage_logic():
     result = ResultMessage(
+        subtype="test",
+        duration_ms=5,
+        duration_api_ms=3,
+        is_error=False,
+        num_turns=1,
+        session_id="usage-session",
         usage={
             "input_tokens": 100,
             "cache_creation_input_tokens": 50,
@@ -141,12 +189,12 @@ def test_extract_usage_logic():
             "output_tokens": 10,
         },
         total_cost_usd=0.005,
-        subtype="test"
     )
     usage = _extract_usage(provider="test", result=result)
     assert usage.token_in == 175
     assert usage.token_out == 10
-    assert usage.cost_usd == Decimal("0.0005")
+    assert usage.cost_usd == Decimal("0.0050")
+
 
 def test_normalize_cost():
     assert _normalize_cost(None) == Decimal("0.0000")

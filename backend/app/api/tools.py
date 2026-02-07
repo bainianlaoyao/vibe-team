@@ -13,6 +13,7 @@ from app.db.enums import InboxItemType, InboxStatus, SourceType, TaskStatus
 from app.db.models import Event, InboxItem, Task, utc_now
 from app.db.session import get_session
 from app.events.schemas import TASK_STATUS_CHANGED_EVENT_TYPE, build_task_status_payload
+from app.exporters import sync_tasks_markdown_for_project_if_enabled
 from app.orchestration.state_machine import InvalidTaskTransitionError, ensure_status_transition
 
 DbSession = Annotated[Session, Depends(get_session)]
@@ -312,6 +313,7 @@ def finish_task(payload: FinishTaskCommandRequest, session: DbSession) -> ToolCo
         response=response,
     )
     _commit_or_conflict(session)
+    sync_tasks_markdown_for_project_if_enabled(session=session, project_id=task.project_id)
     return response
 
 
@@ -386,6 +388,7 @@ def block_task(payload: BlockTaskCommandRequest, session: DbSession) -> ToolComm
         response=response,
     )
     _commit_or_conflict(session)
+    sync_tasks_markdown_for_project_if_enabled(session=session, project_id=task.project_id)
     return response
 
 
@@ -501,4 +504,5 @@ def request_input(payload: RequestInputCommandRequest, session: DbSession) -> To
         response=response,
     )
     _commit_or_conflict(session)
+    sync_tasks_markdown_for_project_if_enabled(session=session, project_id=task.project_id)
     return response

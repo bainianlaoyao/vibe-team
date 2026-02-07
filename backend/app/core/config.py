@@ -20,6 +20,8 @@ class Settings(BaseModel):
     claude_settings_path: str | None = Field(default=None)
     claude_cli_path: str | None = Field(default=None)
     claude_default_max_turns: int = Field(default=8)
+    tasks_md_sync_enabled: bool = Field(default=False)
+    tasks_md_output_path: str = Field(default="../tasks.md")
 
 
 def _to_bool(value: str | None, *, default: bool) -> bool:
@@ -65,6 +67,8 @@ def load_settings() -> Settings:
         claude_settings_path=os.getenv("CLAUDE_SETTINGS_PATH"),
         claude_cli_path=os.getenv("CLAUDE_CLI_PATH"),
         claude_default_max_turns=int(os.getenv("CLAUDE_DEFAULT_MAX_TURNS", "8")),
+        tasks_md_sync_enabled=_to_bool(os.getenv("TASKS_MD_SYNC_ENABLED"), default=False),
+        tasks_md_output_path=os.getenv("TASKS_MD_OUTPUT_PATH", "../tasks.md"),
     )
 
 

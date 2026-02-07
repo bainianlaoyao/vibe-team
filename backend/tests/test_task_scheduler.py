@@ -182,4 +182,3 @@ def test_scheduler_skips_tasks_with_failed_or_cancelled_dependencies(tmp_path: P
 
     finally:
         engine.dispose()
-

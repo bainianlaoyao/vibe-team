@@ -201,6 +201,13 @@ backend/
 6. 新增 CLI 工具封装：`app/tools/cli_tools.py`，以 HTTP 客户端形式暴露 `finish_task/block_task/request_input`。
 7. 新增集成测试：`tests/test_cli_tools.py`，模拟 CLI 调用命令 API 并校验状态写回、幂等命中与审计事件。
 
+实现落地（P4-D，2026-02-07）：
+1. 新增计划视图导出器：`app/exporters/tasks_md_exporter.py`（`TasksMarkdownExporter`），基于 `tasks` 表渲染 Markdown 快照。
+2. 导出内容包含项目维度状态汇总与任务明细表，作为人类可读视图供审阅与追踪。
+3. 新增同步开关：`TASKS_MD_SYNC_ENABLED` 与输出路径 `TASKS_MD_OUTPUT_PATH`（`app/core/config.py`）。
+4. 状态同步机制接入 `tasks` 与 `tools` 的状态写路径，状态变化提交后自动触发导出刷新。
+5. 新增导出一致性测试：`tests/test_tasks_md_exporter.py`，覆盖 DB 快照渲染与 API 状态变更触发文件刷新。
+
 ### 5.1 核心实体
 1. `projects`
 - `id`, `name`, `root_path`, `created_at`, `updated_at`, `version`

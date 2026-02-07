@@ -49,6 +49,8 @@ cd backend
 - `DATABASE_URL`: 数据库连接串（默认开发 `sqlite:///./beebeebrain.db`，测试 `sqlite:///./beebeebrain_test.db`）
 - `DEBUG`: 调试开关（默认开发/测试 `true`，生产 `false`）
 - `TESTING`: 测试模式开关（默认仅 `APP_ENV=test` 为 `true`）
+- `TASKS_MD_SYNC_ENABLED`: 是否在任务状态变更后自动刷新任务 Markdown 视图（默认 `false`）
+- `TASKS_MD_OUTPUT_PATH`: 导出目标路径（默认 `../tasks.md`）
 
 ## 数据库初始化与迁移
 
@@ -91,6 +93,16 @@ uv run alembic upgrade head
 - `POST /inbox/{item_id}/close`（支持 `user_input`，`await_user_input` 类型必填）
 - `POST /events`（结构化事件写入：`task.status.changed` / `run.log` / `alert.raised`）
 - `GET /events/stream`（SSE，支持 `Last-Event-ID` 断线重连与 `replay_last` 回放）
+- `POST /tools/finish_task|block_task|request_input`（CLI 工具命令 API，支持 Idempotency Key 与审计）
+
+## tasks.md 导出
+
+任务状态变更后可自动导出任务视图到 Markdown 文件（默认关闭）：
+
+```bash
+cd backend
+TASKS_MD_SYNC_ENABLED=true TASKS_MD_OUTPUT_PATH=../tasks.md uv run uvicorn app.main:app --reload
+```
 
 ## 事件流压测脚本
 
