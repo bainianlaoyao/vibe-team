@@ -184,6 +184,14 @@ backend/
 5. 运行错误信息与 API 错误响应接入脱敏逻辑，避免在 `task_runs.error_message` 与错误响应中落出密钥明文。
 6. 新增安全边界回归：`tests/test_security_file_guard.py` 与 `tests/test_security_redaction.py`，覆盖越权、敏感文件、配额超限、超时与脱敏场景。
 
+实现落地（P4-B，2026-02-07）：
+1. 新增上下文构建器：`app/agents/context_builder.py`（`PromptContextBuilder`），聚合任务元数据、依赖摘要、`docs/` 规则、索引文档与 `tasks.md` 快照。
+2. 新增模板引擎：`PromptTemplateEngine`，支持按 `phase/task_type` 选择模板并按 `phase__type -> phase__default -> default__type -> default__default` 回退。
+3. 新增 Token Budget 策略：按任务优先级映射默认预算并支持请求级覆盖。
+4. 新增预算裁剪策略：优先裁剪 `tasks.md`、文档与依赖摘要，必要时进行全提示硬截断，保证输出不超过预算。
+5. 新增 Prompt 模板目录：`app/agents/prompt_templates/`（首批 `default__default.tmpl`、`phase4__default.tmpl`）。
+6. 新增上下文回归：`tests/test_context_builder.py`，校验关键约束包含、模板回退与预算裁剪上限。
+
 ### 5.1 核心实体
 1. `projects`
 - `id`, `name`, `root_path`, `created_at`, `updated_at`, `version`
