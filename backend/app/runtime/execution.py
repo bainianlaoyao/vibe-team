@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from sqlmodel import Session
 
+from app.core.logging import bind_log_context, get_logger
 from app.db.enums import TASK_RUN_TERMINAL_STATUSES, TaskRunStatus
 from app.db.models import TaskRun, utc_now
 from app.db.repositories import (
@@ -34,6 +35,7 @@ DEFAULT_RECOVERY_ACTOR = "recovery"
 FAILURE_POINT_BEFORE_LLM = "runtime.before_llm"
 FAILURE_POINT_AFTER_LLM = "runtime.after_llm"
 _MAX_ERROR_MESSAGE_LENGTH = 512
+logger = get_logger("bbb.runtime.execution")
 
 
 class FailureInjectorLike(Protocol):
@@ -182,8 +184,19 @@ class TaskRunRuntimeService:
         run = repository.get(run_id)
         if run is None:
             raise TaskRunNotFoundError(f"task_run {run_id} does not exist")
+        bind_log_context(
+            trace_id=trace_id,
+            run_id=run.id,
+            task_id=run.task_id,
+            agent_id=run.agent_id,
+        )
 
         if _to_task_run_status(run.run_status) in TASK_RUN_TERMINAL_STATUSES:
+            logger.info(
+                "runtime.execute.skipped_terminal",
+                run_id=run_id,
+                run_status=_to_task_run_status(run.run_status).value,
+            )
             return run
 
         _ensure_run_is_running(
@@ -195,6 +208,7 @@ class TaskRunRuntimeService:
         timeout = timeout_seconds or self._default_timeout_seconds
         if timeout <= 0:
             raise ValueError("timeout_seconds must be greater than 0")
+        logger.info("runtime.execute.started", run_id=run_id, timeout_seconds=timeout)
 
         try:
             self._inject_failure(point=FAILURE_POINT_BEFORE_LLM)
@@ -210,6 +224,7 @@ class TaskRunRuntimeService:
                 actor=actor,
             )
         except InjectedProcessRestartInterruptError as exc:
+            logger.warning("runtime.execute.interrupted", run_id=run_id, reason=str(exc))
             return self._mark_interrupted(
                 repository=repository,
                 run_id=run_id,
@@ -218,6 +233,7 @@ class TaskRunRuntimeService:
                 message=str(exc),
             )
         except (TimeoutError, InjectedRunTimeoutError) as exc:
+            logger.warning("runtime.execute.timeout", run_id=run_id, reason=str(exc))
             return self._mark_failed(
                 repository=repository,
                 run_id=run_id,
@@ -228,6 +244,7 @@ class TaskRunRuntimeService:
                 actor=actor,
             )
         except InjectedTransientRunError as exc:
+            logger.warning("runtime.execute.transient_error", run_id=run_id, reason=str(exc))
             return self._mark_failed(
                 repository=repository,
                 run_id=run_id,
@@ -238,6 +255,13 @@ class TaskRunRuntimeService:
                 actor=actor,
             )
         except LLMProviderError as exc:
+            logger.warning(
+                "runtime.execute.provider_error",
+                run_id=run_id,
+                provider=exc.provider,
+                code=exc.code.value,
+                retryable=exc.retryable,
+            )
             return self._mark_failed(
                 repository=repository,
                 run_id=run_id,
@@ -248,6 +272,7 @@ class TaskRunRuntimeService:
                 actor=actor,
             )
         except Exception as exc:
+            logger.exception("runtime.execute.unexpected_error", run_id=run_id)
             return self._mark_failed(
                 repository=repository,
                 run_id=run_id,
@@ -376,6 +401,14 @@ class TaskRunRuntimeService:
         latest = repository.get(run_id)
         if latest is None:
             raise TaskRunNotFoundError(f"task_run {run_id} does not exist")
+        logger.info(
+            "runtime.execute.succeeded",
+            run_id=run_id,
+            model_name=model_name,
+            token_in=response.usage.token_in,
+            token_out=response.usage.token_out,
+            cost_usd=str(response.usage.cost_usd),
+        )
         return repository.mark_succeeded(
             run_id=run_id,
             expected_version=latest.version,
@@ -408,6 +441,13 @@ class TaskRunRuntimeService:
                 failure_count=failure_count,
                 now=self._now_factory(),
             )
+        logger.warning(
+            "runtime.execute.failed",
+            run_id=run_id,
+            error_code=_normalize_error_code(error_code),
+            retryable=retryable,
+            next_retry_at=next_retry_at.isoformat() if next_retry_at is not None else None,
+        )
         return repository.mark_failed(
             run_id=run_id,
             expected_version=latest.version,
@@ -439,6 +479,7 @@ class TaskRunRuntimeService:
             raise TaskRunNotFoundError(
                 f"task_run {run_id} is in '{latest_status.value}', cannot mark interrupted"
             )
+        logger.warning("runtime.execute.mark_interrupted", run_id=run_id, reason=message)
         return repository.mark_interrupted(
             run_id=run_id,
             expected_version=latest.version,

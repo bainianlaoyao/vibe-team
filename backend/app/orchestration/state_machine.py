@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import logging
 from collections.abc import Mapping
 from enum import StrEnum
 
+from app.core.logging import get_logger
 from app.db.enums import TaskStatus
 
-logger = logging.getLogger(__name__)
+logger = get_logger("bbb.orchestration.state_machine")
 
 
 class TaskCommand(StrEnum):
@@ -101,10 +101,19 @@ def ensure_status_transition(current_status: TaskStatus, target_status: TaskStat
             f"'{current_status.value}' -> '{target_status.value}'. "
             f"Allowed targets: [{allowed_values}]"
         )
-        logger.warning(error_msg)
+        logger.warning(
+            "task.transition.invalid",
+            current_status=current_status.value,
+            target_status=target_status.value,
+            allowed_statuses=sorted(status.value for status in allowed),
+        )
         raise InvalidTaskTransitionError(error_msg)
 
-    logger.info(f"Transitioning task status: {current_status.value} -> {target_status.value}")
+    logger.info(
+        "task.transition.valid",
+        current_status=current_status.value,
+        target_status=target_status.value,
+    )
 
 
 def resolve_command_target_status(current_status: TaskStatus, command: TaskCommand) -> TaskStatus:
@@ -133,7 +142,12 @@ def resolve_command_target_status(current_status: TaskStatus, command: TaskComma
             f"Command '{command.value}' is not allowed from '{current_status.value}'. "
             f"Allowed source statuses: [{allowed_from}]"
         )
-        logger.warning(error_msg)
+        logger.warning(
+            "task.command.invalid",
+            command=command.value,
+            current_status=current_status.value,
+            allowed_statuses=sorted(status.value for status in transition_map),
+        )
         raise InvalidTaskCommandError(error_msg)
 
     ensure_status_transition(current_status, target_status)

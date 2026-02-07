@@ -5,6 +5,7 @@ from concurrent.futures import TimeoutError as FutureTimeoutError
 from pathlib import Path
 from typing import Final
 
+from app.core.logging import get_logger
 from app.security.types import (
     FileOperationTimeoutError,
     FileQuotaExceededError,
@@ -42,6 +43,7 @@ _SENSITIVE_FILE_NAMES: Final[frozenset[str]] = frozenset(
     }
 )
 _SENSITIVE_SUFFIXES: Final[tuple[str, ...]] = (".pem", ".key", ".p12", ".pfx")
+logger = get_logger("bbb.security.file_guard")
 
 
 def _read_file_bytes_with_limit(path: Path, *, max_bytes: int) -> bytes:
@@ -107,11 +109,17 @@ class SecureFileGateway:
                 )
                 raw = future.result(timeout=resolved_timeout)
         except FutureTimeoutError as exc:
+            logger.warning(
+                "security.file_read.timeout",
+                path=target.name,
+                timeout_seconds=resolved_timeout,
+            )
             raise FileOperationTimeoutError(
                 f"Timed out after {resolved_timeout:.3f}s while reading {target.name}."
             ) from exc
 
         if b"\x00" in raw:
+            logger.warning("security.file_read.binary_blocked", path=target.name)
             raise UnsupportedFileTypeError(f"Binary content is not allowed: {target.name}")
 
         try:
@@ -126,6 +134,11 @@ class SecureFileGateway:
         combined = candidate if candidate.is_absolute() else self._root / candidate
         resolved = combined.resolve()
         if not _is_sub_path(path=resolved, root=self._root):
+            logger.warning(
+                "security.file_read.outside_root",
+                path=str(path),
+                root=self._root.as_posix(),
+            )
             raise PathOutsideRootError(
                 f"Path '{path}' resolves outside root '{self._root.as_posix()}'."
             )
@@ -134,6 +147,11 @@ class SecureFileGateway:
     def _ensure_supported_text_file(self, path: Path) -> None:
         suffix = path.suffix.lower()
         if suffix not in self._allowed_extensions:
+            logger.warning(
+                "security.file_read.unsupported_extension",
+                path=path.name,
+                extension=suffix or "<none>",
+            )
             raise UnsupportedFileTypeError(
                 f"File extension '{suffix or '<none>'}' is not in the allowed whitelist."
             )
@@ -141,10 +159,13 @@ class SecureFileGateway:
     def _ensure_not_sensitive(self, path: Path) -> None:
         lower_name = path.name.lower()
         if lower_name in _SENSITIVE_FILE_NAMES:
+            logger.warning("security.file_read.sensitive_blocked", path=path.name)
             raise SensitiveFileAccessError(f"Access denied for sensitive file: {path.name}")
         if lower_name.endswith(_SENSITIVE_SUFFIXES):
+            logger.warning("security.file_read.sensitive_blocked", path=path.name)
             raise SensitiveFileAccessError(f"Access denied for sensitive file: {path.name}")
         if "secret" in lower_name or "token" in lower_name:
+            logger.warning("security.file_read.sensitive_blocked", path=path.name)
             raise SensitiveFileAccessError(f"Access denied for sensitive file: {path.name}")
 
 

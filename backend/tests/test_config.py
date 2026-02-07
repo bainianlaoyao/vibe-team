@@ -24,3 +24,13 @@ def test_load_settings_for_production_env(monkeypatch: MonkeyPatch) -> None:
 
     assert settings.app_env == "production"
     assert settings.debug is False
+
+
+def test_load_settings_normalizes_log_format(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setenv("LOG_FORMAT", "CONSOLE")
+    settings = load_settings()
+    assert settings.log_format == "console"
+
+    monkeypatch.setenv("LOG_FORMAT", "unsupported")
+    settings = load_settings()
+    assert settings.log_format == "json"

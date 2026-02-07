@@ -28,6 +28,48 @@
 4. 可恢复执行：每次运行有 `run_id`，失败后可基于持久化状态重试。
 5. 先可观测再扩展：关键路径必须有日志、指标和告警点，避免“黑盒 Agent”。
 
+## 2.5 项目现有知识与关键概念（避免重复搜索）
+
+1. 事件系统（Events）
+- 事件落库：`events` 表字段含 `event_type`、`payload_json`、`created_at`、`trace_id`。
+- 事件流：`GET /api/v1/events/stream`（SSE），支持 `Last-Event-ID` 断线续传与 `replay_last` 回放。
+- 事件类型：
+  - `task.status.changed`（任务状态变更）
+  - `run.status.changed`（运行状态变更）
+  - `run.log`（运行日志增量）
+  - `alert.raised`（告警）
+  - `tool.command.audit`、`task.intervention.audit`（审计类）
+  - `inbox.item.created`、`inbox.item.closed`、`user.input.submitted`（收件箱链路）
+
+2. Trace 与 Run 关联
+- `trace_id`：API 传入或后端生成，写入 `events.trace_id`，用于跨事件关联。
+- `run_id`：每次任务运行唯一主键，贯穿运行生命周期与事件。
+
+3. 状态机核心概念
+- 任务状态：`todo` / `running` / `review` / `done` / `blocked` / `failed` / `cancelled`。
+- 运行状态：`queued` / `running` / `retry_scheduled` / `interrupted` / `succeeded` / `failed` / `cancelled`。
+
+4. 运行恢复与幂等
+- `task_runs` 使用 `idempotency_key` 防重执行。
+- 重启恢复：中断运行标记为 `interrupted`，到期重试转为 `running`。
+- 重试策略：指数退避（含 `next_retry_at`）。
+
+5. LLM 适配与成本统计
+- 首期模型：Claude Code（`claude-agent-sdk`）。
+- 使用统计：`task_runs` 记录 token/cost，`api_usage_daily` 汇总日维度成本。
+
+6. 安全边界
+- 文件安全：`SecureFileGateway` 限制 root_path、拦截敏感文件、限制读取大小与超时。
+- 脱敏：统一对 key/token/password 等敏感字段做日志脱敏。
+
+7. CLI 工具回写
+- 工具：`finish_task` / `block_task` / `request_input` 通过 HTTP 命令 API 回写状态。
+- 幂等：按 `tool + task_id + idempotency_key` 去重。
+
+8. tasks.md 视图同步
+- `TasksMarkdownExporter` 负责生成根目录 `tasks.md` 快照。
+- 通过配置 `TASKS_MD_SYNC_ENABLED` / `TASKS_MD_OUTPUT_PATH` 控制同步。
+
 ## 3. 逻辑架构与职责
 
 ### 3.1 模块划分
@@ -207,6 +249,13 @@ backend/
 3. 新增同步开关：`TASKS_MD_SYNC_ENABLED` 与输出路径 `TASKS_MD_OUTPUT_PATH`（`app/core/config.py`）。
 4. 状态同步机制接入 `tasks` 与 `tools` 的状态写路径，状态变化提交后自动触发导出刷新。
 5. 新增导出一致性测试：`tests/test_tasks_md_exporter.py`，覆盖 DB 快照渲染与 API 状态变更触发文件刷新。
+
+实现落地（P5-A，2026-02-07）：
+1. 新增结构化日志模块：`app/core/logging.py`，基于 `structlog + contextvars` 输出 JSON/Console 日志并统一 `trace_id/run_id/task_id/agent_id` 上下文字段。
+2. FastAPI 接入 `TraceContextMiddleware`：自动透传或生成 `X-Trace-ID`，请求日志统一记录 `request.received/request.completed/request.failed`。
+3. 增加日志分层 logger：`bbb.api` / `bbb.orchestration` / `bbb.runtime` / `bbb.tools` / `bbb.security`，关键路径补齐结构化日志字段。
+4. 新增日志查询接口：`GET /api/v1/logs`（`app/api/logs.py`），支持按 `project_id/task_id/run_id/level` 过滤 `run.log` 事件。
+5. 新增日志回归：`tests/test_logs_api.py`，覆盖过滤查询、`X-Trace-ID` 透传/生成与脏 payload 容错。
 
 ### 5.1 核心实体
 1. `projects`

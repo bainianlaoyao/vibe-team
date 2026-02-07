@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.api.errors import ApiException, error_response_docs
+from app.core.logging import bind_log_context, get_logger
 from app.db.enums import InboxItemType, InboxStatus, SourceType, TaskStatus
 from app.db.models import Event, InboxItem, Task, utc_now
 from app.db.session import get_session
@@ -23,6 +24,7 @@ TOOL_COMMAND_AUDIT_EVENT_TYPE = "tool.command.audit"
 INBOX_ITEM_CREATED_EVENT_TYPE = "inbox.item.created"
 
 router = APIRouter(prefix="/tools", tags=["tools"])
+logger = get_logger("bbb.tools.command_api")
 
 
 class _ToolCommandBase(BaseModel):
@@ -256,6 +258,7 @@ def _append_tool_audit_event(
 )
 def finish_task(payload: FinishTaskCommandRequest, session: DbSession) -> ToolCommandResponse:
     task = _get_task_or_404(session, payload.task_id)
+    bind_log_context(trace_id=payload.trace_id, task_id=payload.task_id)
     actor = _normalized_optional_text(payload.actor) or DEFAULT_TOOL_ACTOR
     idempotency_key = payload.idempotency_key.strip()
 
@@ -314,6 +317,12 @@ def finish_task(payload: FinishTaskCommandRequest, session: DbSession) -> ToolCo
     )
     _commit_or_conflict(session)
     sync_tasks_markdown_for_project_if_enabled(session=session, project_id=task.project_id)
+    logger.info(
+        "tool.finish_task.applied",
+        task_id=payload.task_id,
+        idempotency_key=idempotency_key,
+        actor=actor,
+    )
     return response
 
 
@@ -331,6 +340,7 @@ def finish_task(payload: FinishTaskCommandRequest, session: DbSession) -> ToolCo
 )
 def block_task(payload: BlockTaskCommandRequest, session: DbSession) -> ToolCommandResponse:
     task = _get_task_or_404(session, payload.task_id)
+    bind_log_context(trace_id=payload.trace_id, task_id=payload.task_id)
     actor = _normalized_optional_text(payload.actor) or DEFAULT_TOOL_ACTOR
     idempotency_key = payload.idempotency_key.strip()
 
@@ -389,6 +399,12 @@ def block_task(payload: BlockTaskCommandRequest, session: DbSession) -> ToolComm
     )
     _commit_or_conflict(session)
     sync_tasks_markdown_for_project_if_enabled(session=session, project_id=task.project_id)
+    logger.info(
+        "tool.block_task.applied",
+        task_id=payload.task_id,
+        idempotency_key=idempotency_key,
+        actor=actor,
+    )
     return response
 
 
@@ -406,6 +422,7 @@ def block_task(payload: BlockTaskCommandRequest, session: DbSession) -> ToolComm
 )
 def request_input(payload: RequestInputCommandRequest, session: DbSession) -> ToolCommandResponse:
     task = _get_task_or_404(session, payload.task_id)
+    bind_log_context(trace_id=payload.trace_id, task_id=payload.task_id)
     actor = _normalized_optional_text(payload.actor) or DEFAULT_TOOL_ACTOR
     idempotency_key = payload.idempotency_key.strip()
 
@@ -505,4 +522,11 @@ def request_input(payload: RequestInputCommandRequest, session: DbSession) -> To
     )
     _commit_or_conflict(session)
     sync_tasks_markdown_for_project_if_enabled(session=session, project_id=task.project_id)
+    logger.info(
+        "tool.request_input.applied",
+        task_id=payload.task_id,
+        idempotency_key=idempotency_key,
+        actor=actor,
+        inbox_item_id=inbox_item.id,
+    )
     return response

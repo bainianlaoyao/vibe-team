@@ -247,16 +247,29 @@ Phase 4 验收：
 
 - Owner: Observability
 - 依赖：Phase 3 完成
+- 技术栈决策（2026-02-07）：
+	- 日志库：`structlog`（JSON 结构化日志 + 上下文绑定）
+	- 上下文传播：`contextvars`（FastAPI middleware 生成/绑定 `trace_id`，日志自动携带 `trace_id/run_id/task_id`）
+	- 第三方日志统一：使用 `structlog.stdlib.ProcessorFormatter` 桥接 `uvicorn` / `sqlalchemy` / 其他标准 `logging` 输出
+	- 输出与存储：默认 stdout/文件 JSON（标准库 `RotatingFileHandler`），可选写入 DB（仅 `WARNING+`，用于查询接口）
+	- OpenTelemetry：MVP 阶段不引入（单体服务优先最小依赖；后续按需扩展）
+	- 推荐 logger 命名分层：`bbb.api` / `bbb.orchestration` / `bbb.runtime` / `bbb.tools` / `bbb.security` / `bbb.llm` / `bbb.db`
+	- 配置项（Settings）：`LOG_LEVEL`、`LOG_FORMAT(json|console)`、`LOG_FILE`、`LOG_DB_ENABLED`、`LOG_DB_MIN_LEVEL`
 - 串行任务：
-1. [ ] 统一日志格式（JSON + trace_id + run_id + task_id）。
-2. [ ] 建立日志分层（API、编排、执行、工具、安全）。
-3. [ ] 接入日志查询接口（按任务/运行过滤）。
-4. [ ] 编写日志完整性测试。
+1. [x] 统一日志格式（JSON + trace_id + run_id + task_id）。
+2. [x] 建立日志分层（API、编排、执行、工具、安全）。
+3. [x] 接入日志查询接口（按任务/运行过滤）。
+4. [x] 编写日志完整性测试。
 
 ### 并行任务 P5-B：指标与成本看板数据
 
 - Owner: Observability
 - 依赖：P3-B step 4
+- 技术栈决策（2026-02-07）：
+  - 无需新依赖或新基础设施：直接对已有 `api_usage_daily` 与 `task_runs` 表做 SQL 聚合查询
+  - 新增 REST 端点（如 `GET /api/v1/metrics/usage-daily`、`GET /api/v1/metrics/runs-summary`），复用现有 FastAPI + repository 模式
+  - 告警策略：基于阈值比较（配置项 `COST_ALERT_THRESHOLD_USD`），命中后写 `alert.raised` 事件并创建 `inbox_items`
+  - 不引入时序数据库或 Prometheus（MVP 单机 SQLite 体量无需）
 - 串行任务：
 1. [ ] 落库 `api_usage_daily` 与运行时延指标。
 2. [ ] 提供聚合接口（按 provider/model/date 统计）。
@@ -267,6 +280,12 @@ Phase 4 验收：
 
 - Owner: Runtime
 - 依赖：P3-C step 2
+- 技术栈决策（2026-02-07）：
+  - 检测机制：FastAPI lifespan 内启动 `asyncio.create_task` 周期协程（默认每 60s 轮询），不引入 APScheduler/Celery 等外部调度框架
+  - 检测维度：① 无输出超时（`task_runs.started_at` 超过阈值仍为 `running`）；② 重复动作哈希（近 N 条 `run.log` 事件 payload 哈希去重率 > 阈值）；③ 错误速率（滑动窗口内 `failed` 占比 > 阈值）
+  - 检测结果动作：复用已有 `InboxRepository` 创建 `inbox_items(item_type=await_user_input)` + 写 `alert.raised` 事件，无需新存储
+  - 阈值可配置化：`Settings` 新增 `STUCK_IDLE_TIMEOUT_S`、`STUCK_REPEAT_THRESHOLD`、`STUCK_ERROR_RATE_THRESHOLD`
+  - 防重复告警：同一 `run_id` 的同类告警在未关闭前不重复创建（基于 `inbox_items` 去重查询）
 - 串行任务：
 1. [ ] 实现无输出超时检测。
 2. [ ] 实现重复动作哈希检测。
@@ -278,6 +297,12 @@ Phase 4 验收：
 
 - Owner: Security/Infra
 - 依赖：P4-A step 3, P5-A step 1
+- 技术栈决策（2026-02-07）：
+  - 审计日志存储：复用现有 `events` 表，以 `security.audit.*` 前缀事件类型记录（如 `security.audit.access_denied`、`security.audit.sensitive_file_blocked`），不新建独立 `audit_logs` 表
+  - 审计字段规范：payload 统一包含 `actor`、`action`、`resource`、`outcome(allowed|denied)`、`reason`、`ip`（可选）
+  - 故障演练：扩展已有 `FailureInjectionStub`（`tests/test_runtime_failure_injection.py`），新增 DB 锁竞争、文件权限错误场景，无需新依赖
+  - Runbook 与 SOP：以 Markdown 文档输出到 `docs/runbook/`，不引入专用事件响应平台
+  - 回滚脚本：基于 Alembic `downgrade` + SQLite 文件备份（`cp beebeebrain.db beebeebrain.db.bak`），无需新工具
 - 串行任务：
 1. [ ] 对关键 API 和工具调用补齐审计字段。
 2. [ ] 演练常见故障：LLM 超时、数据库锁、文件权限错误。
@@ -299,6 +324,13 @@ Phase 5 验收：
 
 - Owner: Backend API + Frontend
 - 依赖：Phase 5 完成
+- 待决策清单（进入 Phase 6 前需确认）：
+  - [ ] 前端脚手架：Vite + Vue 3（推荐）vs Nuxt 3
+  - [ ] API 客户端生成策略：基于 OpenAPI schema 自动生成（openapi-typescript / orval）vs 手写 fetch/axios
+  - [ ] 状态管理：Pinia（推荐）vs 纯 Composables
+  - [ ] 后端 CORS 配置：`main.py` 中加入 `CORSMiddleware`
+  - [ ] 认证方案：MVP 本地 token / API key header（最小实现）
+  - [ ] SSE 前端消费：原生 EventSource API vs fetch stream
 - 串行任务：
 1. [ ] 联调任务列表、看板状态流、收件箱视图接口。
 2. [ ] 联调运行日志流与干预操作。
@@ -309,6 +341,11 @@ Phase 5 验收：
 
 - Owner: QA
 - 依赖：P6-A step 2
+- 待决策清单（进入 Phase 6 前需确认）：
+  - [ ] E2E 测试范围：纯 API 端到端（pytest + TestClient）vs 浏览器 UI 端到端 vs 两者兼有
+  - [ ] 浏览器 E2E 框架（如需要）：Playwright（推荐，Python/JS 双支持）vs Cypress
+  - [ ] CI 平台：GitHub Actions（推荐）vs GitLab CI
+  - [ ] 测试数据管理：复用已有 `seed.py` + pytest fixture 工厂
 - 串行任务：
 1. [ ] 设计 MVP 验收用例（成功流、失败流、人工干预流）。
 2. [ ] 建立自动化 E2E（可先覆盖核心 happy path）。
@@ -319,6 +356,14 @@ Phase 5 验收：
 
 - Owner: Infra
 - 依赖：P6-B step 3
+- 待决策清单（进入 Phase 6 前需确认）：
+  - [ ] 容器化方案：Docker（推荐）vs Podman vs 直接 systemd
+  - [ ] 编排方案：docker-compose（推荐，MVP 单机）vs K8s vs 云 PaaS（Fly.io / Railway）
+  - [ ] CI/CD 平台：与 P6-B 统一（GitHub Actions 推荐）
+  - [ ] 生产数据库：继续 SQLite（单用户场景可行）vs 升级 PostgreSQL（并发写入需求时）
+  - [ ] 密钥管理：`.env` 文件 + docker secrets（MVP）vs Vault
+  - [ ] 版本号策略：语义版本 + Git tag + CHANGELOG.md（已有）
+  - [ ] 数据库迁移生产策略：Alembic upgrade（AGENTS.md 已约定 expand/contract 模式）
 - 串行任务：
 1. [ ] 固化发布脚本与版本号策略。
 2. [ ] 输出部署文档、配置清单、密钥清单。

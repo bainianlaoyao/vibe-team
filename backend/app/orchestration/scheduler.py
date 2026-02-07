@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-import logging
 from collections import defaultdict
 from typing import Any, cast
 
 from sqlmodel import Session, select
 
+from app.core.logging import get_logger
 from app.db.enums import TaskStatus
 from app.db.models import Task, TaskDependency
 
-logger = logging.getLogger(__name__)
+logger = get_logger("bbb.orchestration.scheduler")
 
 
 def _build_dependency_map(
@@ -92,7 +92,7 @@ def list_schedulable_tasks(
         ).all()
     )
     if not candidate_tasks:
-        logger.debug(f"No candidate tasks found for project {project_id}")
+        logger.debug("scheduler.no_candidates", project_id=project_id)
         return []
 
     candidate_task_ids = [task.id for task in candidate_tasks if task.id is not None]
@@ -121,16 +121,20 @@ def list_schedulable_tasks(
             schedulable.append(task)
         else:
             logger.debug(
-                f"Task {task.id} skipped due to unsatisfied dependencies. "
-                f"Dependencies: {dependency_ids_for_task}, Statuses: {dependency_statuses}"
+                "scheduler.skip_unsatisfied_dependencies",
+                project_id=project_id,
+                task_id=task.id,
+                dependency_ids=sorted(dependency_ids_for_task),
             )
 
         if len(schedulable) >= limit:
             break
 
     logger.info(
-        f"Project {project_id}: Found {len(schedulable)} schedulable tasks "
-        f"(scanned {len(candidate_tasks)} candidates)."
+        "scheduler.completed",
+        project_id=project_id,
+        schedulable_count=len(schedulable),
+        candidate_count=len(candidate_tasks),
     )
     return schedulable
 

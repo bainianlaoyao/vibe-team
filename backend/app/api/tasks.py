@@ -14,6 +14,7 @@ from sqlmodel import Session, select
 
 from app.api.errors import ApiException, error_response_docs
 from app.core.config import get_settings
+from app.core.logging import bind_log_context, get_logger
 from app.db.enums import TASK_RUN_TERMINAL_STATUSES, TaskRunStatus, TaskStatus
 from app.db.models import Agent, Event, Project, Task, TaskRun, utc_now
 from app.db.session import get_session
@@ -42,6 +43,7 @@ TASK_INTERVENTION_AUDIT_EVENT_TYPE = "task.intervention.audit"
 MAX_BROADCAST_TASKS = 200
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+logger = get_logger("bbb.api.tasks")
 
 
 class TaskCreate(BaseModel):
@@ -629,6 +631,7 @@ def _apply_task_command(
     source: TaskInterventionSource = TaskInterventionSource.SINGLE,
 ) -> TaskRead:
     task = _get_task_or_404(session, task_id)
+    bind_log_context(trace_id=payload.trace_id, task_id=task_id, run_id=payload.run_id)
     previous_status = _to_task_status(task.status)
 
     if payload.expected_version is not None and payload.expected_version != task.version:
@@ -714,6 +717,14 @@ def _apply_task_command(
     _commit_or_conflict(session)
     session.refresh(task)
     _sync_tasks_md_if_enabled(session, project_id=task.project_id)
+    logger.info(
+        "task.command.applied",
+        task_id=task_id,
+        command=command.value,
+        previous_status=previous_status.value,
+        status=target_status.value,
+        source=source.value,
+    )
     return TaskRead.model_validate(task)
 
 
@@ -784,6 +795,7 @@ def list_tasks(
     ),
 )
 def create_task(payload: TaskCreate, session: DbSession) -> TaskRead:
+    bind_log_context(trace_id=payload.trace_id, task_id=None, run_id=payload.run_id)
     _require_project(session, payload.project_id)
     _ensure_assignee_is_valid(session, payload.project_id, payload.assignee_agent_id)
     _ensure_parent_task_is_valid(session, payload.project_id, payload.parent_task_id)
@@ -808,6 +820,12 @@ def create_task(payload: TaskCreate, session: DbSession) -> TaskRead:
     _commit_or_conflict(session)
     session.refresh(task)
     _sync_tasks_md_if_enabled(session, project_id=task.project_id)
+    logger.info(
+        "task.created",
+        project_id=task.project_id,
+        task_id=task.id,
+        status=str(task.status),
+    )
     return TaskRead.model_validate(task)
 
 
@@ -837,6 +855,7 @@ def get_task(task_id: int, session: DbSession) -> TaskRead:
 )
 def update_task(task_id: int, payload: TaskUpdate, session: DbSession) -> TaskRead:
     task = _get_task_or_404(session, task_id)
+    bind_log_context(trace_id=payload.trace_id, task_id=task_id, run_id=payload.run_id)
     previous_status = _to_task_status(task.status)
     update_data = payload.model_dump(exclude_unset=True, mode="python")
     trace_id = update_data.pop("trace_id", None)
@@ -884,6 +903,12 @@ def update_task(task_id: int, payload: TaskUpdate, session: DbSession) -> TaskRe
     session.refresh(task)
     if status_changed:
         _sync_tasks_md_if_enabled(session, project_id=task.project_id)
+    logger.info(
+        "task.updated",
+        task_id=task_id,
+        status=str(task.status),
+        status_changed=status_changed,
+    )
     return TaskRead.model_validate(task)
 
 
@@ -990,6 +1015,7 @@ def broadcast_task_command(
 )
 def run_task(task_id: int, payload: TaskRunExecuteRequest, session: DbSession) -> TaskRunRead:
     task = _get_task_or_404(session, task_id)
+    bind_log_context(trace_id=payload.trace_id, task_id=task_id)
     assignee = _resolve_task_assignee(task, session)
 
     provider = _normalized_optional_text(payload.provider) or assignee.model_provider
@@ -1018,6 +1044,7 @@ def run_task(task_id: int, payload: TaskRunExecuteRequest, session: DbSession) -
             "RESOURCE_CONFLICT",
             "Task run was created without primary key.",
         )
+    bind_log_context(run_id=run.id, task_id=task_id, agent_id=assignee.id)
 
     run_status = _to_task_run_status(run.run_status)
     if run_status not in TASK_RUN_TERMINAL_STATUSES:
@@ -1060,6 +1087,13 @@ def run_task(task_id: int, payload: TaskRunExecuteRequest, session: DbSession) -
             "TASK_RUN_NOT_FOUND",
             f"Task run {run.id} does not exist.",
         )
+    logger.info(
+        "task.run.completed",
+        task_id=task_id,
+        run_id=run.id,
+        run_status=run_status.value,
+        task_status=target_status.value,
+    )
     return TaskRunRead.model_validate(persisted_run)
 
 

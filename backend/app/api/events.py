@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.api.errors import ApiException, error_response_docs
+from app.core.logging import bind_log_context, get_logger
 from app.db.models import Event, Project
 from app.db.session import get_session, session_scope
 from app.events.schemas import (
@@ -25,6 +26,7 @@ from app.events.schemas import (
 )
 
 router = APIRouter(prefix="/events", tags=["events"])
+logger = get_logger("bbb.api.events")
 
 DbSession = Annotated[Session, Depends(get_session)]
 
@@ -230,6 +232,7 @@ def _list_recent_events(*, project_id: int | None, limit: int) -> list[Event]:
     ),
 )
 def create_event(payload: EventCreateRequest, session: DbSession) -> StreamEventRecord:
+    bind_log_context(trace_id=payload.trace_id)
     _require_project(session, payload.project_id)
     event = Event(
         project_id=payload.project_id,
@@ -240,6 +243,12 @@ def create_event(payload: EventCreateRequest, session: DbSession) -> StreamEvent
     session.add(event)
     _commit_or_conflict(session)
     session.refresh(event)
+    logger.info(
+        "events.created",
+        project_id=payload.project_id,
+        event_type=payload.event_type,
+        event_id=event.id,
+    )
     return to_stream_event_record(event)
 
 

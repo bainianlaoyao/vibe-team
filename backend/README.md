@@ -51,6 +51,11 @@ cd backend
 - `TESTING`: 测试模式开关（默认仅 `APP_ENV=test` 为 `true`）
 - `TASKS_MD_SYNC_ENABLED`: 是否在任务状态变更后自动刷新任务 Markdown 视图（默认 `false`）
 - `TASKS_MD_OUTPUT_PATH`: 导出目标路径（默认 `../tasks.md`）
+- `LOG_LEVEL`: 日志级别（默认 `INFO`）
+- `LOG_FORMAT`: 日志格式，`json` 或 `console`（默认 `json`）
+- `LOG_FILE`: 可选日志文件输出路径（默认不写文件）
+- `LOG_DB_ENABLED`: 预留 DB 日志写入开关（默认 `false`）
+- `LOG_DB_MIN_LEVEL`: 预留 DB 日志最小级别（默认 `WARNING`）
 
 ## 数据库初始化与迁移
 
@@ -93,7 +98,12 @@ uv run alembic upgrade head
 - `POST /inbox/{item_id}/close`（支持 `user_input`，`await_user_input` 类型必填）
 - `POST /events`（结构化事件写入：`task.status.changed` / `run.log` / `alert.raised`）
 - `GET /events/stream`（SSE，支持 `Last-Event-ID` 断线重连与 `replay_last` 回放）
+- `GET /logs`（运行日志查询，支持 `project_id/task_id/run_id/level` 过滤）
 - `POST /tools/finish_task|block_task|request_input`（CLI 工具命令 API，支持 Idempotency Key 与审计）
+
+## 追踪头
+
+- 所有请求默认注入或透传 `X-Trace-ID` 响应头，便于跨日志与事件关联。
 
 ## tasks.md 导出
 

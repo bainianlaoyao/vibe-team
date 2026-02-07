@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 Environment = Literal["development", "test", "production"]
+LogFormat = Literal["json", "console"]
 
 
 class Settings(BaseModel):
@@ -22,6 +23,11 @@ class Settings(BaseModel):
     claude_default_max_turns: int = Field(default=8)
     tasks_md_sync_enabled: bool = Field(default=False)
     tasks_md_output_path: str = Field(default="../tasks.md")
+    log_level: str = Field(default="INFO")
+    log_format: LogFormat = Field(default="json")
+    log_file: str | None = Field(default=None)
+    log_db_enabled: bool = Field(default=False)
+    log_db_min_level: str = Field(default="WARNING")
 
 
 def _to_bool(value: str | None, *, default: bool) -> bool:
@@ -48,6 +54,15 @@ def _normalize_env(value: str | None) -> Environment:
     return "development"
 
 
+def _normalize_log_format(value: str | None) -> LogFormat:
+    if value is None:
+        return "json"
+    lowered = value.strip().lower()
+    if lowered == "console":
+        return "console"
+    return "json"
+
+
 def load_settings() -> Settings:
     app_env = _normalize_env(os.getenv("APP_ENV"))
     default_debug = app_env != "production"
@@ -69,6 +84,11 @@ def load_settings() -> Settings:
         claude_default_max_turns=int(os.getenv("CLAUDE_DEFAULT_MAX_TURNS", "8")),
         tasks_md_sync_enabled=_to_bool(os.getenv("TASKS_MD_SYNC_ENABLED"), default=False),
         tasks_md_output_path=os.getenv("TASKS_MD_OUTPUT_PATH", "../tasks.md"),
+        log_level=os.getenv("LOG_LEVEL", "INFO"),
+        log_format=_normalize_log_format(os.getenv("LOG_FORMAT")),
+        log_file=os.getenv("LOG_FILE"),
+        log_db_enabled=_to_bool(os.getenv("LOG_DB_ENABLED"), default=False),
+        log_db_min_level=os.getenv("LOG_DB_MIN_LEVEL", "WARNING"),
     )
 
 
