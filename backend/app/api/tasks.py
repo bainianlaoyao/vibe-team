@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
+from decimal import Decimal
 from enum import StrEnum
 from typing import Annotated, Any, cast
 from uuid import uuid4
@@ -11,10 +13,19 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.api.errors import ApiException, error_response_docs
-from app.db.enums import TaskStatus
-from app.db.models import Agent, Event, Project, Task, utc_now
+from app.core.config import get_settings
+from app.db.enums import TASK_RUN_TERMINAL_STATUSES, TaskRunStatus, TaskStatus
+from app.db.models import Agent, Event, Project, Task, TaskRun, utc_now
 from app.db.session import get_session
 from app.events.schemas import TASK_STATUS_CHANGED_EVENT_TYPE, build_task_status_payload
+from app.llm import (
+    LLMErrorCode,
+    LLMMessage,
+    LLMProviderError,
+    LLMRequest,
+    LLMRole,
+    create_llm_client,
+)
 from app.orchestration.state_machine import (
     InvalidTaskCommandError,
     InvalidTaskTransitionError,
@@ -23,6 +34,7 @@ from app.orchestration.state_machine import (
     resolve_command_target_status,
     validate_initial_status,
 )
+from app.runtime import TaskRunRuntimeService
 
 DEFAULT_TASK_EVENT_ACTOR = "api"
 TASK_INTERVENTION_AUDIT_EVENT_TYPE = "task.intervention.audit"
@@ -204,6 +216,74 @@ class TaskRead(BaseModel):
                 "created_at": "2026-02-06T17:00:00Z",
                 "updated_at": "2026-02-06T17:00:00Z",
                 "due_at": "2026-02-10T18:00:00Z",
+                "version": 3,
+            }
+        },
+    )
+
+
+class TaskRunExecuteRequest(BaseModel):
+    prompt: str = Field(min_length=1, max_length=12000)
+    provider: str | None = Field(default=None, min_length=1, max_length=80)
+    model: str | None = Field(default=None, min_length=1, max_length=120)
+    system_prompt: str | None = Field(default=None, max_length=4000)
+    session_id: str | None = Field(default=None, min_length=1, max_length=120)
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=80)
+    max_turns: int | None = Field(default=None, ge=1, le=128)
+    timeout_seconds: float | None = Field(default=None, gt=0, le=600)
+    trace_id: str | None = Field(default=None, max_length=64)
+    actor: str | None = Field(default="runtime", min_length=1, max_length=120)
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "prompt": "请先阅读任务并给出执行结果摘要。",
+                "provider": "claude_code",
+                "model": "claude-sonnet-4-5",
+                "session_id": "task-22",
+                "idempotency_key": "task-22-request-001",
+                "max_turns": 6,
+                "timeout_seconds": 90,
+                "trace_id": "trace-task-22-run-1",
+                "actor": "runtime",
+            }
+        }
+    )
+
+
+class TaskRunRead(BaseModel):
+    id: int
+    task_id: int
+    agent_id: int | None
+    run_status: str
+    attempt: int
+    idempotency_key: str
+    started_at: datetime
+    ended_at: datetime | None
+    next_retry_at: datetime | None
+    error_code: str | None
+    error_message: str | None
+    token_in: int
+    token_out: int
+    cost_usd: Decimal
+    version: int
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "id": 91,
+                "task_id": 22,
+                "agent_id": 4,
+                "run_status": "succeeded",
+                "attempt": 1,
+                "idempotency_key": "task-22-request-001",
+                "started_at": "2026-02-07T09:00:00Z",
+                "ended_at": "2026-02-07T09:00:08Z",
+                "next_retry_at": None,
+                "error_code": None,
+                "error_message": None,
+                "token_in": 120,
+                "token_out": 48,
+                "cost_usd": "0.0123",
                 "version": 3,
             }
         },
@@ -422,6 +502,112 @@ def _raise_invalid_command(message: str) -> None:
         status.HTTP_422_UNPROCESSABLE_ENTITY,
         "INVALID_TASK_COMMAND",
         message,
+    )
+
+
+def _to_task_run_status(value: TaskRunStatus | str) -> TaskRunStatus:
+    if isinstance(value, TaskRunStatus):
+        return value
+    return TaskRunStatus(str(value))
+
+
+def _resolve_task_run_target_status(*, run_status: TaskRunStatus) -> TaskStatus:
+    if run_status == TaskRunStatus.SUCCEEDED:
+        return TaskStatus.REVIEW
+    if run_status == TaskRunStatus.FAILED:
+        return TaskStatus.FAILED
+    if run_status == TaskRunStatus.CANCELLED:
+        return TaskStatus.CANCELLED
+    if run_status == TaskRunStatus.INTERRUPTED:
+        return TaskStatus.BLOCKED
+    return TaskStatus.RUNNING
+
+
+def _resolve_task_assignee(task: Task, session: Session) -> Agent:
+    if task.assignee_agent_id is None:
+        raise ApiException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "INVALID_ASSIGNEE",
+            "Task must have an assignee_agent_id before run.",
+        )
+    agent = session.get(Agent, task.assignee_agent_id)
+    if agent is None or agent.project_id != task.project_id:
+        raise ApiException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "INVALID_ASSIGNEE",
+            "Task assignee agent is missing or does not belong to the same project.",
+        )
+    return agent
+
+
+def _transition_task_status_for_run(
+    session: Session,
+    *,
+    task: Task,
+    target_status: TaskStatus,
+    run_id: int | None,
+    trace_id: str | None,
+    actor: str | None,
+) -> None:
+    previous_status = _to_task_status(task.status)
+    if previous_status == target_status:
+        return
+    try:
+        ensure_status_transition(previous_status, target_status)
+    except InvalidTaskTransitionError as exc:
+        _raise_invalid_transition(str(exc))
+
+    task.status = target_status
+    task.updated_at = utc_now()
+    task.version += 1
+    _append_task_status_event(
+        session,
+        task=task,
+        previous_status=previous_status,
+        trace_id=trace_id,
+        run_id=run_id,
+        actor=actor,
+    )
+    _commit_or_conflict(session)
+    session.refresh(task)
+
+
+def _build_llm_request(
+    payload: TaskRunExecuteRequest,
+    *,
+    provider: str,
+    model: str,
+    task_id: int,
+) -> LLMRequest:
+    session_id = _normalized_optional_text(payload.session_id) or f"task-{task_id}"
+    return LLMRequest(
+        provider=provider,
+        model=model,
+        messages=[LLMMessage(role=LLMRole.USER, content=payload.prompt)],
+        session_id=session_id,
+        system_prompt=payload.system_prompt,
+        max_turns=payload.max_turns,
+        trace_id=payload.trace_id,
+    )
+
+
+def _raise_provider_error(error: LLMProviderError) -> None:
+    if error.code in {LLMErrorCode.UNSUPPORTED_PROVIDER, LLMErrorCode.INVALID_REQUEST}:
+        raise ApiException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "INVALID_LLM_PROVIDER",
+            error.message,
+        )
+    if error.code == LLMErrorCode.AUTHENTICATION_FAILED:
+        raise ApiException(
+            status.HTTP_401_UNAUTHORIZED,
+            "LLM_AUTHENTICATION_FAILED",
+            error.message,
+        )
+    raise ApiException(
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "LLM_PROVIDER_UNAVAILABLE",
+        error.message,
     )
 
 
@@ -773,6 +959,95 @@ def broadcast_task_command(
         failed_count=failed_count,
         items=items,
     )
+
+
+@router.post(
+    "/{task_id}/run",
+    response_model=TaskRunRead,
+    responses=cast(
+        dict[int | str, dict[str, Any]],
+        error_response_docs(
+            status.HTTP_401_UNAUTHORIZED,
+            status.HTTP_404_NOT_FOUND,
+            status.HTTP_409_CONFLICT,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        ),
+    ),
+)
+def run_task(task_id: int, payload: TaskRunExecuteRequest, session: DbSession) -> TaskRunRead:
+    task = _get_task_or_404(session, task_id)
+    assignee = _resolve_task_assignee(task, session)
+
+    provider = _normalized_optional_text(payload.provider) or assignee.model_provider
+    model = _normalized_optional_text(payload.model) or assignee.model_name
+    idempotency_key = _normalized_optional_text(payload.idempotency_key) or (
+        f"task-{task_id}-request-{uuid4().hex}"
+    )
+
+    try:
+        llm_client = create_llm_client(provider=provider, settings=get_settings())
+    except LLMProviderError as exc:
+        _raise_provider_error(exc)
+
+    runtime_service = TaskRunRuntimeService(llm_client=llm_client)
+    run = runtime_service.create_run(
+        session=session,
+        task_id=task_id,
+        agent_id=assignee.id,
+        idempotency_key=idempotency_key,
+        trace_id=payload.trace_id,
+        actor=payload.actor or "runtime",
+    )
+    if run.id is None:
+        raise ApiException(
+            status.HTTP_409_CONFLICT,
+            "RESOURCE_CONFLICT",
+            "Task run was created without primary key.",
+        )
+
+    run_status = _to_task_run_status(run.run_status)
+    if run_status not in TASK_RUN_TERMINAL_STATUSES:
+        _transition_task_status_for_run(
+            session,
+            task=task,
+            target_status=TaskStatus.RUNNING,
+            run_id=run.id,
+            trace_id=payload.trace_id,
+            actor=payload.actor,
+        )
+
+        request = _build_llm_request(payload, provider=provider, model=model, task_id=task_id)
+        run = asyncio.run(
+            runtime_service.execute_run(
+                session=session,
+                run_id=run.id,
+                request=request,
+                trace_id=payload.trace_id,
+                actor=payload.actor or "runtime",
+                timeout_seconds=payload.timeout_seconds,
+            )
+        )
+        run_status = _to_task_run_status(run.run_status)
+
+    target_status = _resolve_task_run_target_status(run_status=run_status)
+    _transition_task_status_for_run(
+        session,
+        task=task,
+        target_status=target_status,
+        run_id=run.id,
+        trace_id=payload.trace_id,
+        actor=payload.actor,
+    )
+
+    persisted_run = session.get(TaskRun, run.id)
+    if persisted_run is None:
+        raise ApiException(
+            status.HTTP_404_NOT_FOUND,
+            "TASK_RUN_NOT_FOUND",
+            f"Task run {run.id} does not exist.",
+        )
+    return TaskRunRead.model_validate(persisted_run)
 
 
 @router.post(

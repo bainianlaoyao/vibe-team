@@ -17,6 +17,9 @@ class Settings(BaseModel):
     port: int = Field(default=8000)
     database_url: str = Field(default="sqlite:///./beebeebrain.db")
     testing: bool = Field(default=False)
+    claude_settings_path: str | None = Field(default=None)
+    claude_cli_path: str | None = Field(default=None)
+    claude_default_max_turns: int = Field(default=8)
 
 
 def _to_bool(value: str | None, *, default: bool) -> bool:
@@ -59,6 +62,9 @@ def load_settings() -> Settings:
         port=int(os.getenv("PORT", "8000")),
         database_url=os.getenv("DATABASE_URL", default_db),
         testing=_to_bool(os.getenv("TESTING"), default=default_testing),
+        claude_settings_path=os.getenv("CLAUDE_SETTINGS_PATH"),
+        claude_cli_path=os.getenv("CLAUDE_CLI_PATH"),
+        claude_default_max_turns=int(os.getenv("CLAUDE_DEFAULT_MAX_TURNS", "8")),
     )
 
 

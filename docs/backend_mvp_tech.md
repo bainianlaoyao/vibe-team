@@ -40,7 +40,7 @@
 - 触发执行、暂停、重试、人工干预。
 
 3. Agent 执行层（Execution Pool）
-- 封装 OpenAI/Anthropic 调用。
+- 封装 LLM provider 调用（当前首期接入 Claude Code，预留 OpenAI/Anthropic 扩展位）。
 - 处理 Tool Calling 循环、超时、重试、token/成本统计。
 
 4. 文档与知识工具层（Document Tools）
@@ -160,6 +160,21 @@ backend/
 2. 新增批量干预接口：`POST /api/v1/tasks/broadcast/{command}`，默认按 `running` 状态筛选并可按 `task_ids/status` 定向广播。
 3. 新增干预审计事件 `task.intervention.audit`，覆盖成功、拒绝与版本冲突三类结果。
 4. 新增并发冲突回归测试，验证 stale `expected_version` 返回 `409 TASK_VERSION_CONFLICT` 且写入审计日志。
+
+实现落地（P3-B，2026-02-06）：
+1. 新增统一 LLM 契约层：`app/llm/contracts.py`（`LLMRequest/LLMResponse/LLMUsage/LLMToolCall`）与 `app/llm/errors.py`（统一错误码与 retryable 标记）。
+2. 新增 Claude Code 适配器：`app/llm/providers/claude_code.py`，基于 `claude-agent-sdk` 统一映射请求、响应、tool call 与 provider 错误。
+3. 新增 Claude 配置加载器：`app/llm/providers/claude_settings.py`，默认自动读取用户目录 `~/.claude/settings.json` 的 `env` 段，并允许环境变量覆盖。
+4. 新增 usage 落库服务：`app/llm/usage.py`，将 token/cost 聚合写入 `task_runs` 与 `api_usage_daily`。
+5. 新增回归测试：`tests/test_llm_claude_adapter.py`、`tests/test_llm_usage.py`、`tests/test_llm_factory.py`，覆盖 provider 故障注入、settings 自动读取、tool call 对齐与 usage 累加。
+
+实现落地（P3-C，2026-02-07）：
+1. 新增运行编排服务：`app/runtime/execution.py`（`TaskRunRuntimeService`），打通 run 创建、执行、失败标记、重试调度与完成收敛。
+2. 新增重试策略对象：`RuntimeRetryPolicy`，对超时与 retryable provider 错误采用指数退避并写入 `next_retry_at`。
+3. 幂等执行统一使用 `idempotency_key`，同一请求重复触发时复用已有 `task_runs` 记录并避免重复执行。
+4. 新增重启恢复流程：`interrupt_inflight_runs`（`running -> interrupted`）与 `resume_due_retries`（到期 `retry_scheduled -> running`）。
+5. 新增运行恢复测试：`tests/test_runtime_execution.py`，覆盖成功幂等、超时退避、重启恢复与异常恢复端到端场景。
+6. 新增运行入口 API：`POST /api/v1/tasks/{task_id}/run`，自动完成任务进入 `running`、run 执行、结果态映射（`review/failed/blocked/cancelled`）与状态事件写入。
 
 ### 5.1 核心实体
 1. `projects`

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
 
@@ -14,6 +15,7 @@ from sqlmodel import Session, SQLModel, select
 from app.core.config import get_settings
 from app.db.engine import create_engine_from_url, dispose_engine
 from app.db.models import Event, Project
+from app.llm import LLMErrorCode, LLMProviderError, LLMResponse, LLMUsage
 from app.main import create_app
 
 
@@ -27,6 +29,21 @@ class ApiTestContext:
     engine: Engine
     project_id: int
     other_project_id: int
+
+
+class SequenceLLMClient:
+    def __init__(self, outcomes: list[LLMResponse | Exception]) -> None:
+        self._outcomes = list(outcomes)
+        self.invocation_count = 0
+
+    async def generate(self, request: Any) -> LLMResponse:
+        self.invocation_count += 1
+        if not self._outcomes:
+            raise AssertionError("No more fake LLM outcomes configured.")
+        outcome = self._outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
 
 
 @pytest.fixture
@@ -67,6 +84,24 @@ def api_context(tmp_path: Path, monkeypatch: MonkeyPatch) -> Iterator[ApiTestCon
     engine.dispose()
     dispose_engine()
     get_settings.cache_clear()
+
+
+def _success_llm_response(*, session_id: str) -> LLMResponse:
+    return LLMResponse(
+        provider="claude_code",
+        model="claude-sonnet-4-5",
+        session_id=session_id,
+        text="任务执行完成",
+        tool_calls=[],
+        usage=LLMUsage(
+            request_count=1,
+            token_in=80,
+            token_out=20,
+            cost_usd=Decimal("0.0065"),
+        ),
+        stop_reason="success",
+        raw_result="ok",
+    )
 
 
 def test_agents_crud_and_validation(api_context: ApiTestContext) -> None:
@@ -522,3 +557,181 @@ def test_task_command_expected_version_conflict_writes_audit_event(
     assert conflict_payload["expected_version"] == expected_version
     assert conflict_payload["actual_version"] == expected_version + 1
     assert conflict_payload["error_code"] == "TASK_VERSION_CONFLICT"
+
+
+def test_run_task_endpoint_executes_and_is_idempotent(
+    api_context: ApiTestContext,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    fake_llm = SequenceLLMClient([_success_llm_response(session_id="task-run-1")])
+    monkeypatch.setattr(
+        "app.api.tasks.create_llm_client",
+        lambda **_: fake_llm,
+    )
+
+    agent_response = api_context.client.post(
+        "/api/v1/agents",
+        json={
+            "project_id": api_context.project_id,
+            "name": "Run Agent",
+            "role": "executor",
+            "model_provider": "claude_code",
+            "model_name": "claude-sonnet-4-5",
+            "initial_persona_prompt": "Execute tasks.",
+            "enabled_tools_json": [],
+            "status": "active",
+        },
+    )
+    assert agent_response.status_code == 201
+    agent_id = agent_response.json()["id"]
+
+    task_response = api_context.client.post(
+        "/api/v1/tasks",
+        json={
+            "project_id": api_context.project_id,
+            "title": "Run Me",
+            "assignee_agent_id": agent_id,
+        },
+    )
+    assert task_response.status_code == 201
+    task_id = task_response.json()["id"]
+
+    first_run_response = api_context.client.post(
+        f"/api/v1/tasks/{task_id}/run",
+        json={
+            "prompt": "执行该任务并返回一句话总结",
+            "session_id": "task-run-1",
+            "idempotency_key": f"task-{task_id}-run-001",
+            "trace_id": "trace-task-run-1",
+        },
+    )
+    assert first_run_response.status_code == 200
+    first_payload = first_run_response.json()
+    assert first_payload["task_id"] == task_id
+    assert first_payload["run_status"] == "succeeded"
+    assert first_payload["attempt"] == 1
+    assert first_payload["token_in"] == 80
+    assert first_payload["token_out"] == 20
+    assert first_payload["cost_usd"] == "0.0065"
+    assert fake_llm.invocation_count == 1
+
+    duplicate_run_response = api_context.client.post(
+        f"/api/v1/tasks/{task_id}/run",
+        json={
+            "prompt": "执行该任务并返回一句话总结",
+            "session_id": "task-run-1",
+            "idempotency_key": f"task-{task_id}-run-001",
+        },
+    )
+    assert duplicate_run_response.status_code == 200
+    duplicate_payload = duplicate_run_response.json()
+    assert duplicate_payload["id"] == first_payload["id"]
+    assert duplicate_payload["run_status"] == "succeeded"
+    assert fake_llm.invocation_count == 1
+
+    task_state_response = api_context.client.get(f"/api/v1/tasks/{task_id}")
+    assert task_state_response.status_code == 200
+    assert task_state_response.json()["status"] == "review"
+
+    with Session(api_context.engine) as session:
+        event_id = cast(Any, Event.id)
+        task_events = list(
+            session.exec(
+                select(Event)
+                .where(Event.project_id == api_context.project_id)
+                .where(Event.event_type == "task.status.changed")
+                .order_by(event_id.asc())
+            ).all()
+        )
+        run_events = list(
+            session.exec(
+                select(Event)
+                .where(Event.project_id == api_context.project_id)
+                .where(Event.event_type == "run.status.changed")
+                .order_by(event_id.asc())
+            ).all()
+        )
+
+    scoped_task_events = [
+        event for event in task_events if event.payload_json.get("task_id") == task_id
+    ]
+    assert [event.payload_json["status"] for event in scoped_task_events] == [
+        "todo",
+        "running",
+        "review",
+    ]
+
+    run_id = first_payload["id"]
+    scoped_run_events = [
+        event for event in run_events if event.payload_json.get("run_id") == run_id
+    ]
+    assert [event.payload_json["status"] for event in scoped_run_events] == [
+        "queued",
+        "running",
+        "succeeded",
+    ]
+
+
+def test_run_task_endpoint_retryable_failure_schedules_retry(
+    api_context: ApiTestContext,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    fake_llm = SequenceLLMClient(
+        [
+            LLMProviderError(
+                code=LLMErrorCode.PROVIDER_UNAVAILABLE,
+                provider="claude_code",
+                message="temporary outage",
+                retryable=True,
+            )
+        ]
+    )
+    monkeypatch.setattr(
+        "app.api.tasks.create_llm_client",
+        lambda **_: fake_llm,
+    )
+
+    agent_response = api_context.client.post(
+        "/api/v1/agents",
+        json={
+            "project_id": api_context.project_id,
+            "name": "Retry Agent",
+            "role": "executor",
+            "model_provider": "claude_code",
+            "model_name": "claude-sonnet-4-5",
+            "initial_persona_prompt": "Execute tasks.",
+            "enabled_tools_json": [],
+            "status": "active",
+        },
+    )
+    assert agent_response.status_code == 201
+    agent_id = agent_response.json()["id"]
+
+    task_response = api_context.client.post(
+        "/api/v1/tasks",
+        json={
+            "project_id": api_context.project_id,
+            "title": "Retry Me",
+            "assignee_agent_id": agent_id,
+        },
+    )
+    assert task_response.status_code == 201
+    task_id = task_response.json()["id"]
+
+    run_response = api_context.client.post(
+        f"/api/v1/tasks/{task_id}/run",
+        json={
+            "prompt": "执行并在失败时重试",
+            "idempotency_key": f"task-{task_id}-run-retry-001",
+        },
+    )
+    assert run_response.status_code == 200
+    payload = run_response.json()
+    assert payload["run_status"] == "retry_scheduled"
+    assert payload["next_retry_at"] is not None
+    assert payload["error_code"] == "LLM_PROVIDER_UNAVAILABLE"
+    assert fake_llm.invocation_count == 1
+
+    task_state_response = api_context.client.get(f"/api/v1/tasks/{task_id}")
+    assert task_state_response.status_code == 200
+    assert task_state_response.json()["status"] == "running"
