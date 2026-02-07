@@ -176,6 +176,14 @@ backend/
 5. 新增运行恢复测试：`tests/test_runtime_execution.py`，覆盖成功幂等、超时退避、重启恢复与异常恢复端到端场景。
 6. 新增运行入口 API：`POST /api/v1/tasks/{task_id}/run`，自动完成任务进入 `running`、run 执行、结果态映射（`review/failed/blocked/cancelled`）与状态事件写入。
 
+实现落地（P4-A，2026-02-07）：
+1. 新增安全文件网关：`app/security/file_guard.py`（`SecureFileGateway`），固定 `root_path` 并基于 `resolve/relative_to` 拦截越权路径。
+2. 新增敏感文件策略：默认阻断 `.env`、私钥后缀（`.pem/.key/.p12/.pfx`）和高风险命名文件读取。
+3. 新增资源治理：单次读取字节上限、文件扩展名白名单、线程超时保护（防止长耗时读操作占用执行线程）。
+4. 新增日志脱敏器：`app/security/redaction.py`，对 `api_key/access_token/secret/password/bearer token` 进行统一脱敏。
+5. 运行错误信息与 API 错误响应接入脱敏逻辑，避免在 `task_runs.error_message` 与错误响应中落出密钥明文。
+6. 新增安全边界回归：`tests/test_security_file_guard.py` 与 `tests/test_security_redaction.py`，覆盖越权、敏感文件、配额超限、超时与脱敏场景。
+
 ### 5.1 核心实体
 1. `projects`
 - `id`, `name`, `root_path`, `created_at`, `updated_at`, `version`

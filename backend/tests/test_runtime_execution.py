@@ -469,3 +469,46 @@ def test_runtime_exception_recovery_end_to_end(tmp_path: Path) -> None:
             ]
     finally:
         engine.dispose()
+
+
+def test_runtime_error_message_is_redacted(tmp_path: Path) -> None:
+    db_url = _to_sqlite_url(tmp_path / "runtime-redaction.db")
+    initialize_database(database_url=db_url, seed=False)
+    engine = create_engine_from_url(db_url)
+
+    try:
+        with Session(engine) as session:
+            _, agent, task = _create_project_agent_task(
+                session,
+                tmp_path,
+                title="Runtime Redaction Task",
+            )
+            assert task.id is not None
+            assert agent.id is not None
+
+            llm_client = SequenceLLMClient(
+                [
+                    LLMProviderError(
+                        code=LLMErrorCode.PROVIDER_UNAVAILABLE,
+                        provider="claude_code",
+                        message="api_key=abc123 temporary outage",
+                        retryable=False,
+                    )
+                ]
+            )
+            service = TaskRunRuntimeService(llm_client=llm_client)
+            run = asyncio.run(
+                service.execute_task(
+                    session=session,
+                    task_id=task.id,
+                    agent_id=agent.id,
+                    idempotency_key=f"task-{task.id}-request-redact",
+                    request=_request(session_id="runtime-redact"),
+                )
+            )
+            assert run.run_status == TaskRunStatus.FAILED
+            assert run.error_message is not None
+            assert "abc123" not in run.error_message
+            assert "***REDACTED***" in run.error_message
+    finally:
+        engine.dispose()

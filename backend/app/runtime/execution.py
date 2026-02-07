@@ -27,6 +27,7 @@ from app.runtime.failure_injection import (
     InjectedRunTimeoutError,
     InjectedTransientRunError,
 )
+from app.security import redact_sensitive_text
 
 DEFAULT_RUNTIME_ACTOR = "runtime"
 DEFAULT_RECOVERY_ACTOR = "recovery"
@@ -486,7 +487,8 @@ def _normalize_error_message(value: str) -> str:
     normalized = value.strip()
     if not normalized:
         return "Runtime execution failed."
-    return normalized[:_MAX_ERROR_MESSAGE_LENGTH]
+    redacted = redact_sensitive_text(normalized)
+    return redacted[:_MAX_ERROR_MESSAGE_LENGTH]
 
 
 def _to_task_run_status(value: TaskRunStatus | str) -> TaskRunStatus:

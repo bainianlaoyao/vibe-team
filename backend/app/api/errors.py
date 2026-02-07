@@ -8,6 +8,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.security import redact_sensitive_text
+
 
 class ValidationIssue(BaseModel):
     field: str
@@ -83,10 +85,11 @@ def build_error_response(
     *,
     issues: list[ValidationIssue] | None = None,
 ) -> JSONResponse:
+    safe_message = redact_sensitive_text(message)
     payload = ErrorResponse(
         error=ErrorPayload(
             code=code,
-            message=message,
+            message=safe_message,
             issues=issues or [],
         )
     )
