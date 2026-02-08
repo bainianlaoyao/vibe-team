@@ -239,8 +239,13 @@ def test_seed_data_is_idempotent(tmp_path: Path) -> None:
     try:
         with Session(engine) as session:
             assert len(session.exec(select(Project)).all()) == 1
-            assert len(session.exec(select(Agent)).all()) == 1
+            seeded_agents = session.exec(select(Agent)).all()
+            assert len(seeded_agents) == 2
+            assert {agent.name for agent in seeded_agents} == {"Frontend Agent", "Backend Agent"}
             assert len(session.exec(select(Task)).all()) == 1
+            seeded_task = session.exec(select(Task)).first()
+            assert seeded_task is not None
+            assert seeded_task.title == "开发前后端分离的贪吃蛇"
             seeded_events = session.exec(
                 select(Event).where(Event.event_type == "system.seeded")
             ).all()
