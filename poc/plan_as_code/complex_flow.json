@@ -1,0 +1,110 @@
+{
+  "id": "6d7ec85c-0a2d-481d-b446-1ce02cced1c9",
+  "type": "chain",
+  "steps": [
+    {
+      "id": "228cd7bc-60d2-4975-b16a-2f9ca7b3a991",
+      "type": "task",
+      "name": "PM-Alice: Draft initial requirement for Smart Search",
+      "agent_name": "PM-Alice",
+      "instruction": "Draft initial requirement for Smart Search"
+    },
+    {
+      "id": "93365571-188e-4ab6-8d71-42e6f6c85d8f",
+      "type": "task",
+      "name": "Arch-Bob: Review requirements for performance feasibility",
+      "agent_name": "Arch-Bob",
+      "instruction": "Review requirements for performance feasibility"
+    },
+    {
+      "id": "5b44956d-9344-4860-b58d-dd54c1e162e4",
+      "type": "task",
+      "name": "PM-Alice: Refine requirements based on technical feedback",
+      "agent_name": "PM-Alice",
+      "instruction": "Refine requirements based on technical feedback"
+    },
+    {
+      "id": "4aa6aa70-d09b-4678-892a-9843812edef2",
+      "type": "task",
+      "name": "Arch-Bob: Create technical specification and API design",
+      "agent_name": "Arch-Bob",
+      "instruction": "Create technical specification and API design"
+    },
+    {
+      "id": "02a5aa13-9298-4424-aab1-46f2d0754db4",
+      "type": "branch",
+      "decision_node": {
+        "id": "a0281b61-075e-4f78-842b-96bb8cd89857",
+        "type": "human",
+        "name": "Ask: Approve Tech Spec?",
+        "question": "Approve Tech Spec?",
+        "options": [
+          "Yes",
+          "No"
+        ]
+      },
+      "paths": {
+        "Yes": {
+          "id": "6e56bb18-49a8-425a-8690-232afe61df14",
+          "type": "chain",
+          "steps": [
+            {
+              "id": "94d67eed-81b6-4148-afa5-0b5fe92c6f44",
+              "type": "parallel",
+              "branches": [
+                {
+                  "id": "88ee4aec-f6c4-4e1f-b924-9b0550d000e5",
+                  "type": "task",
+                  "name": "Dev-Charlie: Implement Smart Search API",
+                  "agent_name": "Dev-Charlie",
+                  "instruction": "Implement Smart Search API"
+                },
+                {
+                  "id": "2f37c57c-1ccb-48e1-a063-57b9557a20db",
+                  "type": "task",
+                  "name": "FE-Frank: Implement Search UI Components",
+                  "agent_name": "FE-Frank",
+                  "instruction": "Implement Search UI Components"
+                }
+              ]
+            },
+            {
+              "id": "e2b8604d-93cb-4415-8a42-36d4967dd556",
+              "type": "task",
+              "name": "QA-Dave: Integration & Acceptance Testing",
+              "agent_name": "QA-Dave",
+              "instruction": "Integration & Acceptance Testing"
+            }
+          ]
+        },
+        "No": {
+          "id": "360bba8f-6e13-4c6a-9c3c-f63a29bfca5a",
+          "type": "chain",
+          "steps": [
+            {
+              "id": "d7ea2b15-bdb3-4009-a083-40be1d01b8bb",
+              "type": "task",
+              "name": "PM-Alice: Analyze rejection reasons",
+              "agent_name": "PM-Alice",
+              "instruction": "Analyze rejection reasons"
+            },
+            {
+              "id": "7e27034f-b3e8-43c0-b4c0-2dcbc9405b47",
+              "type": "task",
+              "name": "Arch-Bob: Revise Technical Specification",
+              "agent_name": "Arch-Bob",
+              "instruction": "Revise Technical Specification"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "a1e72f49-7a34-4674-b835-9201026ec15e",
+      "type": "task",
+      "name": "PM-Alice: Project Retrospective & Closure",
+      "agent_name": "PM-Alice",
+      "instruction": "Project Retrospective & Closure"
+    }
+  ]
+}

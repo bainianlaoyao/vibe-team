@@ -1,0 +1,98 @@
+{
+  "nodes": [
+    {
+      "id": "0a1f4429-2bfd-403f-9398-232d093b0d09",
+      "type": "agent-node",
+      "data": {
+        "label": "Arch-Bot: Design System Architecture",
+        "status": "running",
+        "details": {
+          "instruction": "Design System Architecture",
+          "agent": "Arch-Bot"
+        }
+      },
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "d7b208c9-e6e4-4d1e-a4b9-78f8243f950d",
+      "type": "group-node",
+      "data": {
+        "label": "Parallel Group",
+        "status": "running",
+        "details": {}
+      },
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "ca60981a-a878-499a-a9e2-b188665ecc68",
+      "type": "agent-node",
+      "data": {
+        "label": "Dev-Bot: Setup Frontend Repo",
+        "status": "running",
+        "details": {
+          "instruction": "Setup Frontend Repo",
+          "agent": "Dev-Bot"
+        }
+      },
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "f870bd15-59db-42a1-8442-8eec3a65b8d6",
+      "type": "agent-node",
+      "data": {
+        "label": "Dev-Bot: Setup Backend Repo",
+        "status": "running",
+        "details": {
+          "instruction": "Setup Backend Repo",
+          "agent": "Dev-Bot"
+        }
+      },
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "ee3c6382-009f-4e83-98b2-149bf216b9c2",
+      "type": "human-node",
+      "data": {
+        "label": "Ask Human: Deploy to production?",
+        "status": "pending",
+        "details": {}
+      },
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-d7b208c9-e6e4-4d1e-a4b9-78f8243f950d-ca60981a-a878-499a-a9e2-b188665ecc68",
+      "source": "d7b208c9-e6e4-4d1e-a4b9-78f8243f950d",
+      "target": "ca60981a-a878-499a-a9e2-b188665ecc68",
+      "animated": true,
+      "style": {
+        "stroke": "#8B5CF6"
+      }
+    },
+    {
+      "id": "e-d7b208c9-e6e4-4d1e-a4b9-78f8243f950d-f870bd15-59db-42a1-8442-8eec3a65b8d6",
+      "source": "d7b208c9-e6e4-4d1e-a4b9-78f8243f950d",
+      "target": "f870bd15-59db-42a1-8442-8eec3a65b8d6",
+      "animated": true,
+      "style": {
+        "stroke": "#8B5CF6"
+      }
+    }
+  ]
+}

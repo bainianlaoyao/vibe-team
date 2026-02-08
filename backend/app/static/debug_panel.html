@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BeeBeeBrain Debug Panel</title>
+  <style>
+    :root {
+      --bg: #f4efe4;
+      --surface: #fffaf0;
+      --border: #d7c8ac;
+      --text: #26231f;
+      --muted: #6f6453;
+      --accent: #1f6f5f;
+      --warn: #9b3d1e;
+    }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Trebuchet MS", sans-serif;
+      background: radial-gradient(circle at 20% 10%, #fff9ed 0, var(--bg) 55%);
+      color: var(--text);
+    }
+    .page {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 20px;
+      display: grid;
+      gap: 14px;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+    }
+    h1, h2 {
+      margin: 0 0 8px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+    h1 { font-size: 1.4rem; }
+    h2 { font-size: 1.1rem; }
+    .grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    input, select, textarea, button {
+      font: inherit;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      background: #fff;
+      color: var(--text);
+    }
+    button {
+      cursor: pointer;
+      background: var(--accent);
+      color: #fff;
+      border-color: transparent;
+      transition: transform 120ms ease;
+    }
+    button.secondary {
+      background: #7f755f;
+    }
+    button.warn {
+      background: var(--warn);
+    }
+    button:hover {
+      transform: translateY(-1px);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    th, td {
+      border-bottom: 1px solid #e7dcc7;
+      padding: 7px 6px;
+      vertical-align: top;
+      text-align: left;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .actions button {
+      font-size: 0.75rem;
+      padding: 5px 7px;
+    }
+    #eventsOutput, #statusOutput, #agentResultOutput {
+      width: 100%;
+      min-height: 160px;
+      font-family: "Consolas", monospace;
+      background: #101414;
+      color: #d9f3ee;
+      border: 1px solid #203635;
+      resize: vertical;
+    }
+    #statusOutput {
+      min-height: 80px;
+    }
+    #agentResultOutput {
+      min-height: 120px;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="card">
+      <h1>BeeBeeBrain Debug Panel</h1>
+      <div class="grid">
+        <label>Base URL
+          <input id="baseUrl" />
+        </label>
+        <label>Project ID
+          <input id="projectId" type="number" min="1" value="1" />
+        </label>
+        <label>Auth Mode
+          <select id="authMode">
+            <option value="x_api_key">X-API-Key</option>
+            <option value="bearer">Authorization Bearer</option>
+          </select>
+        </label>
+        <label>Token / API Key
+          <input id="apiKey" />
+        </label>
+      </div>
+      <div class="actions" style="margin-top: 10px;">
+        <button id="saveConfig" class="secondary">Save Config</button>
+        <button id="runChain">Run Acceptance Chain</button>
+        <button id="refreshAll">Refresh Tasks + Inbox</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Agent Playground</h2>
+      <div class="grid">
+        <label>Prepared Task ID
+          <input id="playgroundTaskId" type="number" min="1" readonly />
+        </label>
+        <label>Prepared Agent ID
+          <input id="playgroundAgentId" type="number" min="1" readonly />
+        </label>
+        <label>Run README Path
+          <input id="playgroundReadmePath" readonly />
+        </label>
+        <label>Run Prompt
+          <textarea id="runPrompt" rows="3"></textarea>
+        </label>
+      </div>
+      <div class="actions" style="margin-top: 10px; margin-bottom: 8px;">
+        <button id="setupPlayground">Setup Agent Playground</button>
+        <button id="runPlaygroundTask" class="secondary">Run Playground Task</button>
+      </div>
+      <textarea id="agentResultOutput" readonly></textarea>
+    </div>
+
+    <div class="card">
+      <h2>Tasks</h2>
+      <div class="actions" style="margin-bottom: 8px;">
+        <button id="loadTasks">Load Tasks</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Title</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="tasksBody"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Inbox</h2>
+      <div class="actions" style="margin-bottom: 8px;">
+        <button id="loadInbox">Load Open Inbox</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Title</th>
+            <th>Content</th>
+            <th>Close Input</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="inboxBody"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Events Stream</h2>
+      <div class="actions" style="margin-bottom: 8px;">
+        <button id="startEvents">Start Stream</button>
+        <button id="stopEvents" class="warn">Stop Stream</button>
+        <button id="clearEvents" class="secondary">Clear</button>
+      </div>
+      <textarea id="eventsOutput" readonly></textarea>
+    </div>
+
+    <div class="card">
+      <h2>Status</h2>
+      <textarea id="statusOutput" readonly></textarea>
+    </div>
+  </div>
+
+  <script type="module">
+    const storageKey = "bbb_debug_panel_config";
+    const state = {
+      streamController: null,
+      streamBuffer: "",
+    };
+
+    const el = {
+      baseUrl: document.getElementById("baseUrl"),
+      projectId: document.getElementById("projectId"),
+      authMode: document.getElementById("authMode"),
+      apiKey: document.getElementById("apiKey"),
+      playgroundTaskId: document.getElementById("playgroundTaskId"),
+      playgroundAgentId: document.getElementById("playgroundAgentId"),
+      playgroundReadmePath: document.getElementById("playgroundReadmePath"),
+      runPrompt: document.getElementById("runPrompt"),
+      agentResultOutput: document.getElementById("agentResultOutput"),
+      tasksBody: document.getElementById("tasksBody"),
+      inboxBody: document.getElementById("inboxBody"),
+      eventsOutput: document.getElementById("eventsOutput"),
+      statusOutput: document.getElementById("statusOutput"),
+      saveConfig: document.getElementById("saveConfig"),
+      setupPlayground: document.getElementById("setupPlayground"),
+      runPlaygroundTask: document.getElementById("runPlaygroundTask"),
+      runChain: document.getElementById("runChain"),
+      refreshAll: document.getElementById("refreshAll"),
+      loadTasks: document.getElementById("loadTasks"),
+      loadInbox: document.getElementById("loadInbox"),
+      startEvents: document.getElementById("startEvents"),
+      stopEvents: document.getElementById("stopEvents"),
+      clearEvents: document.getElementById("clearEvents"),
+    };
+
+    function appendStatus(message) {
+      el.statusOutput.value += `[${new Date().toISOString()}] ${message}\n`;
+      el.statusOutput.scrollTop = el.statusOutput.scrollHeight;
+    }
+
+    function appendEvent(message) {
+      el.eventsOutput.value += `${message}\n`;
+      el.eventsOutput.scrollTop = el.eventsOutput.scrollHeight;
+    }
+
+    function appendAgentResult(message) {
+      el.agentResultOutput.value += `[${new Date().toISOString()}] ${message}\n`;
+      el.agentResultOutput.scrollTop = el.agentResultOutput.scrollHeight;
+    }
+
+    function readConfig() {
+      return {
+        baseUrl: (el.baseUrl.value || window.location.origin).trim().replace(/\/$/, ""),
+        projectId: Number(el.projectId.value) || 1,
+        authMode: el.authMode.value,
+        apiKey: el.apiKey.value.trim(),
+      };
+    }
+
+    function saveConfig() {
+      localStorage.setItem(storageKey, JSON.stringify(readConfig()));
+      appendStatus("config saved");
+    }
+
+    function loadConfig() {
+      const raw = localStorage.getItem(storageKey);
+      const saved = raw ? JSON.parse(raw) : {};
+      el.baseUrl.value = saved.baseUrl || window.location.origin;
+      el.projectId.value = String(saved.projectId || 1);
+      el.authMode.value = saved.authMode || "x_api_key";
+      el.apiKey.value = saved.apiKey || "";
+    }
+
+    function buildHeaders(includeJson = true) {
+      const cfg = readConfig();
+      const headers = {};
+      if (includeJson) headers["Content-Type"] = "application/json";
+      headers["Accept"] = "application/json";
+      if (cfg.apiKey) {
+        if (cfg.authMode === "bearer") headers["Authorization"] = `Bearer ${cfg.apiKey}`;
+        else headers["X-API-Key"] = cfg.apiKey;
+      }
+      return headers;
+    }
+
+    function apiUrl(path, params = {}) {
+      const cfg = readConfig();
+      const query = new URLSearchParams(params);
+      const queryText = query.toString();
+      return `${cfg.baseUrl}${path}${queryText ? `?${queryText}` : ""}`;
+    }
+
+    async function apiFetch(path, options = {}) {
+      const response = await fetch(apiUrl(path, options.params || {}), {
+        method: options.method || "GET",
+        headers: { ...buildHeaders(options.includeJson !== false), ...(options.headers || {}) },
+        body: options.body || null,
+        signal: options.signal || null,
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`${options.method || "GET"} ${path} failed (${response.status}): ${text}`);
+      }
+      return response;
+    }
+
+    function defaultRunPromptForTask(taskId) {
+      const readmePath = (el.playgroundReadmePath.value || "").trim();
+      if (readmePath) {
+        return `请读取文件 ${readmePath} 的内容。仅返回文件内容本身，不要添加解释。`;
+      }
+      return `请执行任务 ${taskId}，并返回执行结果摘要。`;
+    }
+
+    async function fetchRunOutput(runId) {
+      const cfg = readConfig();
+      const response = await apiFetch("/api/v1/logs", {
+        params: {
+          project_id: cfg.projectId,
+          run_id: runId,
+          limit: 20,
+        },
+      });
+      const logs = await response.json();
+      if (!Array.isArray(logs) || logs.length === 0) return "";
+      return (logs[0].message || "").trim();
+    }
+
+    async function runTaskAndGetResult(taskId, promptText) {
+      const resolvedPrompt = (promptText || "").trim() || defaultRunPromptForTask(taskId);
+      const runResponse = await apiFetch(`/api/v1/tasks/${taskId}/run`, {
+        method: "POST",
+        body: JSON.stringify({
+          prompt: resolvedPrompt,
+          idempotency_key: `panel-run-${taskId}-${Date.now()}`,
+          trace_id: `debug-panel-run-${taskId}-${Date.now()}`,
+        }),
+      });
+      const runPayload = await runResponse.json();
+      const runId = runPayload.id;
+      const runStatus = runPayload.run_status;
+      const output = await fetchRunOutput(runId);
+      return { runId, runStatus, output };
+    }
+
+    async function setupAgentPlayground() {
+      const cfg = readConfig();
+      const response = await apiFetch("/debug/agent-playground/setup", {
+        method: "POST",
+        body: JSON.stringify({ project_id: cfg.projectId }),
+      });
+      const payload = await response.json();
+      el.playgroundTaskId.value = String(payload.task_id);
+      el.playgroundAgentId.value = String(payload.agent_id);
+      el.playgroundReadmePath.value = payload.project_playground_path || payload.workspace_playground_path || "";
+      el.runPrompt.value = payload.run_prompt || defaultRunPromptForTask(payload.task_id);
+      appendStatus(`agent playground prepared: task=${payload.task_id} agent=${payload.agent_id}`);
+      await loadTasks();
+    }
+
+    async function runPreparedPlaygroundTask() {
+      const taskId = Number(el.playgroundTaskId.value);
+      if (!taskId) {
+        appendStatus("please setup playground first");
+        return;
+      }
+      appendStatus(`running playground task ${taskId}`);
+      const result = await runTaskAndGetResult(taskId, el.runPrompt.value);
+      appendStatus(
+        `task ${taskId} run completed: run_id=${result.runId} status=${result.runStatus}`
+      );
+      if (result.output) {
+        appendAgentResult(`task ${taskId} output: ${result.output}`);
+      } else {
+        appendAgentResult(`task ${taskId} output: <empty>`);
+      }
+      await loadTasks();
+    }
+
+    async function loadTasks() {
+      const cfg = readConfig();
+      const response = await apiFetch("/api/v1/tasks", { params: { project_id: cfg.projectId } });
+      const tasks = await response.json();
+      el.tasksBody.innerHTML = "";
+      for (const task of tasks) {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${task.id}</td>
+          <td>${task.title}</td>
+          <td>${task.status}</td>
+          <td>
+            <div class="actions">
+              <button data-action="pause">pause</button>
+              <button data-action="resume">resume</button>
+              <button data-action="retry">retry</button>
+              <button data-action="cancel">cancel</button>
+              <button data-action="run" class="secondary">run</button>
+              <button data-action="request_input" class="secondary">request_input</button>
+            </div>
+          </td>
+        `;
+        row.querySelectorAll("button").forEach((button) => {
+          button.addEventListener("click", async () => {
+            const action = button.getAttribute("data-action");
+            try {
+              if (action === "request_input") {
+                await apiFetch("/api/v1/tools/request_input", {
+                  method: "POST",
+                  body: JSON.stringify({
+                    task_id: task.id,
+                    title: `Panel request_input for task ${task.id}`,
+                    content: "Please provide confirmation from debug panel.",
+                    idempotency_key: `panel-request-input-${task.id}-${Date.now()}`,
+                  }),
+                });
+              } else if (action === "run") {
+                const result = await runTaskAndGetResult(task.id, el.runPrompt.value);
+                appendStatus(
+                  `task ${task.id} run completed: run_id=${result.runId} status=${result.runStatus}`
+                );
+                if (result.output) {
+                  appendAgentResult(`task ${task.id} output: ${result.output}`);
+                } else {
+                  appendAgentResult(`task ${task.id} output: <empty>`);
+                }
+              } else {
+                await apiFetch(`/api/v1/tasks/${task.id}/${action}`, {
+                  method: "POST",
+                  body: JSON.stringify({}),
+                });
+              }
+              appendStatus(`task ${task.id} action ${action} succeeded`);
+              await loadTasks();
+              await loadInbox();
+            } catch (error) {
+              appendStatus(String(error));
+            }
+          });
+        });
+        el.tasksBody.appendChild(row);
+      }
+      appendStatus(`tasks loaded: ${tasks.length}`);
+    }
+
+    async function loadInbox() {
+      const cfg = readConfig();
+      const response = await apiFetch("/api/v1/inbox", {
+        params: { project_id: cfg.projectId, status: "open" },
+      });
+      const items = await response.json();
+      el.inboxBody.innerHTML = "";
+      for (const item of items) {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${item.id}</td>
+          <td>${item.title}</td>
+          <td>${item.content}</td>
+          <td><input id="inbox-input-${item.id}" placeholder="user_input" /></td>
+          <td><button data-item-id="${item.id}">close</button></td>
+        `;
+        row.querySelector("button").addEventListener("click", async () => {
+          const input = row.querySelector(`#inbox-input-${item.id}`).value.trim();
+          try {
+            await apiFetch(`/api/v1/inbox/${item.id}/close`, {
+              method: "POST",
+              body: JSON.stringify({
+                user_input: input,
+                resolver: "debug-panel",
+                trace_id: `debug-panel-inbox-${item.id}-${Date.now()}`,
+              }),
+            });
+            appendStatus(`inbox ${item.id} closed`);
+            await loadInbox();
+          } catch (error) {
+            appendStatus(String(error));
+          }
+        });
+        el.inboxBody.appendChild(row);
+      }
+      appendStatus(`open inbox loaded: ${items.length}`);
+    }
+
+    function parseSseChunk(chunk) {
+      state.streamBuffer += chunk;
+      const records = state.streamBuffer.split("\n\n");
+      state.streamBuffer = records.pop() || "";
+      for (const record of records) {
+        let eventId = "";
+        let eventType = "";
+        let dataLine = "";
+        for (const line of record.split("\n")) {
+          if (line.startsWith(":")) continue;
+          if (line.startsWith("id:")) eventId = line.slice(3).trim();
+          if (line.startsWith("event:")) eventType = line.slice(6).trim();
+          if (line.startsWith("data:")) dataLine += line.slice(5).trim();
+        }
+        if (dataLine) appendEvent(`${eventId} ${eventType} ${dataLine}`);
+      }
+    }
+
+    async function startEventsStream() {
+      if (state.streamController) return;
+      state.streamController = new AbortController();
+      const cfg = readConfig();
+      appendStatus("events stream started");
+      try {
+        const response = await apiFetch("/api/v1/events/stream", {
+          params: { project_id: cfg.projectId, replay_last: 20, poll_interval_ms: 400 },
+          includeJson: false,
+          signal: state.streamController.signal,
+        });
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          parseSseChunk(decoder.decode(value, { stream: true }));
+        }
+      } catch (error) {
+        if (state.streamController) appendStatus(`events stream stopped: ${String(error)}`);
+      } finally {
+        state.streamController = null;
+      }
+    }
+
+    function stopEventsStream() {
+      if (state.streamController) {
+        state.streamController.abort();
+      }
+      state.streamController = null;
+      appendStatus("events stream abort requested");
+    }
+
+    async function runAcceptanceChain() {
+      const cfg = readConfig();
+      appendStatus("acceptance chain started");
+      try {
+        const createTaskRes = await apiFetch("/api/v1/tasks", {
+          method: "POST",
+          body: JSON.stringify({
+            project_id: cfg.projectId,
+            title: `debug-panel-chain-${Date.now()}`,
+            priority: 2,
+          }),
+        });
+        const createdTask = await createTaskRes.json();
+        const requestInputRes = await apiFetch("/api/v1/tools/request_input", {
+          method: "POST",
+          body: JSON.stringify({
+            task_id: createdTask.id,
+            title: `chain-input-${createdTask.id}`,
+            content: "Please confirm from debug panel chain.",
+            idempotency_key: `debug-panel-chain-${createdTask.id}-${Date.now()}`,
+          }),
+        });
+        const requestInputPayload = await requestInputRes.json();
+        await apiFetch(`/api/v1/inbox/${requestInputPayload.inbox_item_id}/close`, {
+          method: "POST",
+          body: JSON.stringify({
+            user_input: "accepted from debug panel chain",
+            resolver: "debug-panel-chain",
+          }),
+        });
+        appendStatus(`acceptance chain completed for task ${createdTask.id}`);
+        await loadTasks();
+        await loadInbox();
+      } catch (error) {
+        appendStatus(`acceptance chain failed: ${String(error)}`);
+      }
+    }
+
+    el.saveConfig.addEventListener("click", saveConfig);
+    el.setupPlayground.addEventListener("click", async () => {
+      try {
+        await setupAgentPlayground();
+      } catch (error) {
+        appendStatus(String(error));
+      }
+    });
+    el.runPlaygroundTask.addEventListener("click", async () => {
+      try {
+        await runPreparedPlaygroundTask();
+      } catch (error) {
+        appendStatus(String(error));
+      }
+    });
+    el.runChain.addEventListener("click", runAcceptanceChain);
+    el.refreshAll.addEventListener("click", async () => {
+      await loadTasks();
+      await loadInbox();
+    });
+    el.loadTasks.addEventListener("click", loadTasks);
+    el.loadInbox.addEventListener("click", loadInbox);
+    el.startEvents.addEventListener("click", startEventsStream);
+    el.stopEvents.addEventListener("click", stopEventsStream);
+    el.clearEvents.addEventListener("click", () => {
+      el.eventsOutput.value = "";
+    });
+
+    loadConfig();
+    el.runPrompt.value = defaultRunPromptForTask(0);
+    appendStatus("panel initialized; save config before first run if needed");
+    loadTasks().catch((error) => appendStatus(String(error)));
+    loadInbox().catch((error) => appendStatus(String(error)));
+  </script>
+</body>
+</html>

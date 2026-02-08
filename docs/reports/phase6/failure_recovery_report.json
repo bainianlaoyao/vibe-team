@@ -1,0 +1,60 @@
+{
+  "generated_at": "2026-02-07T09:50:25.520803+00:00",
+  "summary": {
+    "scenario_total": 4,
+    "scenario_passed": 4,
+    "pass_rate": 100.0,
+    "total_duration_ms": 1230.05
+  },
+  "scenarios": [
+    {
+      "name": "timeout_backoff",
+      "passed": true,
+      "duration_ms": 357.16,
+      "detail": {
+        "first_status": "succeeded",
+        "resumed_run_ids": [
+          1
+        ],
+        "final_status": "succeeded"
+      },
+      "error": null
+    },
+    {
+      "name": "transient_retry",
+      "passed": true,
+      "duration_ms": 280.55,
+      "detail": {
+        "first_status": "succeeded",
+        "resumed_count": 1,
+        "final_status": "succeeded"
+      },
+      "error": null
+    },
+    {
+      "name": "duplicate_request_idempotency",
+      "passed": true,
+      "duration_ms": 288.08,
+      "detail": {
+        "run_id": 1,
+        "second_status": "succeeded",
+        "llm_invocations": 1
+      },
+      "error": null
+    },
+    {
+      "name": "restart_recovery",
+      "passed": true,
+      "duration_ms": 304.26,
+      "detail": {
+        "interrupted_run_ids": [
+          1
+        ],
+        "resumed_run_ids": [
+          2
+        ]
+      },
+      "error": null
+    }
+  ]
+}

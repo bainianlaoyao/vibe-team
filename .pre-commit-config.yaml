@@ -1,0 +1,18 @@
+repos:
+  - repo: local
+    hooks:
+      - id: backend-ruff
+        name: backend-ruff
+        entry: uv run --project backend ruff check backend/app backend/tests
+        language: system
+        pass_filenames: false
+      - id: backend-black
+        name: backend-black
+        entry: uv run --project backend black --check backend/app backend/tests
+        language: system
+        pass_filenames: false
+      - id: backend-mypy
+        name: backend-mypy
+        entry: uv run --project backend mypy backend/app backend/tests
+        language: system
+        pass_filenames: false

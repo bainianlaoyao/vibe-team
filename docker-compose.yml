@@ -1,0 +1,56 @@
+name: beebeebrain-mvp
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: beebeebrain-backend
+    environment:
+      APP_ENV: production
+      HOST: 0.0.0.0
+      PORT: "8000"
+      DATABASE_URL: sqlite:///./data/beebeebrain.db
+      DB_AUTO_INIT: "true"
+      DB_AUTO_SEED: "true"
+      CORS_ALLOW_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      CORS_ALLOW_CREDENTIALS: "true"
+      LOCAL_API_KEY: ${LOCAL_API_KEY:-}
+    volumes:
+      - backend_data:/app/data
+      - workspace_data:/workspace
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)\"",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: beebeebrain-frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "5173:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  backend_data:
+  workspace_data:

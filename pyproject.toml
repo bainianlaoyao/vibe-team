@@ -1,0 +1,16 @@
+[project]
+name = "beebeebrain-workspace"
+version = "0.1.0"
+description = "Workspace-level tooling entrypoints for BeeBeeBrain"
+requires-python = ">=3.11"
+dependencies = [
+  "beebeebrain-backend",
+  "pytest>=8.3.4,<10.0.0",
+]
+
+[tool.uv.sources]
+beebeebrain-backend = { path = "backend", editable = true }
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["backend/tests"]

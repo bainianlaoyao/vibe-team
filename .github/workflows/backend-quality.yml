@@ -1,0 +1,114 @@
+name: backend-quality
+
+on:
+  push:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-quality.yml"
+      - ".pre-commit-config.yaml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-quality.yml"
+      - ".pre-commit-config.yaml"
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+
+      - name: Sync backend dependencies
+        working-directory: backend
+        run: uv sync --dev --frozen
+
+      - name: Ruff lint
+        working-directory: backend
+        run: uv run ruff check .
+
+      - name: Black format check
+        working-directory: backend
+        run: uv run black --check .
+
+      - name: Mypy type check
+        working-directory: backend
+        run: uv run mypy app tests
+
+      - name: Pytest with coverage gate
+        working-directory: backend
+        run: uv run pytest
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage-xml
+          path: backend/coverage.xml
+
+  api-smoke:
+    runs-on: ubuntu-latest
+    needs: quality
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+
+      - name: Sync backend dependencies
+        working-directory: backend
+        run: uv sync --dev --frozen
+
+      - name: Run API probe smoke
+        working-directory: backend
+        run: |
+          mkdir -p artifacts
+          uv run python scripts/api_probe.py --fail-on-error --json-report-path artifacts/api_probe_report.json --markdown-report-path artifacts/api_probe_report.md
+
+      - name: Upload API probe report
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-api-probe-report
+          path: |
+            backend/artifacts/api_probe_report.json
+            backend/artifacts/api_probe_report.md
+
+  failure-recovery-regression:
+    runs-on: ubuntu-latest
+    needs: quality
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+
+      - name: Sync backend dependencies
+        working-directory: backend
+        run: uv sync --dev --frozen
+
+      - name: Run failure recovery regression probe
+        working-directory: backend
+        run: |
+          mkdir -p artifacts
+          uv run python scripts/failure_recovery_probe.py --fail-on-error --json-report-path artifacts/failure_recovery_report.json --markdown-report-path artifacts/failure_recovery_report.md
+
+      - name: Upload failure recovery report
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-failure-recovery-report
+          path: |
+            backend/artifacts/failure_recovery_report.json
+            backend/artifacts/failure_recovery_report.md
