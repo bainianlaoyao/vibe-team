@@ -1,6 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import sys
+
+# Windows: Use ProactorEventLoop to support asyncio subprocess
+# Required for Claude Agent SDK which uses asyncio.create_subprocess_exec
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 
@@ -12,6 +19,7 @@ from app.api.comments import router as comments_router
 from app.api.conversations import router as conversations_router
 from app.api.dashboard import router as dashboard_router
 from app.api.debug import router as debug_router
+from app.api.debug_claude import router as debug_claude_router
 from app.api.errors import register_exception_handlers
 from app.api.events import router as events_router
 from app.api.files import router as files_router
@@ -78,6 +86,7 @@ def create_app() -> FastAPI:
     app.add_middleware(LocalApiKeyMiddleware, api_key=settings.local_api_key)
     app.add_middleware(TraceContextMiddleware)
     app.include_router(debug_router)
+    app.include_router(debug_claude_router)
     app.include_router(health_router)
     app.include_router(agents_router, prefix="/api/v1")
     app.include_router(comments_router, prefix="/api/v1")

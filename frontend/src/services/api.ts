@@ -360,7 +360,7 @@ export const api = {
 
   listMessages(conversationId: number): Promise<ConversationMessage[]> {
     return request<BackendMessageList>(
-      `/conversations/${conversationId}/messages${buildQuery({ page_size: 200 })}`,
+      `/conversations/${conversationId}/messages${buildQuery({ page_size: 100 })}`,
     ).then(payload =>
       payload.items.map(item => ({
         id: item.id,
