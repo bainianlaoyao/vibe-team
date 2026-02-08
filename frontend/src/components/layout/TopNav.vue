@@ -14,7 +14,9 @@ import Avatar from '../Avatar.vue';
       <div class="flex items-center gap-2 bg-bg-tertiary border border-border rounded-lg px-3 py-2 flex-1">
         <PhMagnifyingGlass :size="16" class="text-text-tertiary" />
         <input
+          id="global-search-input"
           type="text"
+          name="global_search"
           placeholder="Search tasks, agents, files..."
           class="w-full bg-transparent text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none"
         />

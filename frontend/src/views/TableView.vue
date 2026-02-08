@@ -2,12 +2,16 @@
 import { computed, onMounted, ref } from 'vue';
 import { PhArrowSquareOut, PhCaretDown, PhCaretRight, PhGitDiff } from '@phosphor-icons/vue';
 import Avatar from '../components/Avatar.vue';
+import TaskCreateModal from '../components/TaskCreateModal.vue';
 import { useAgentsStore } from '../stores/agents';
 import { useTasksStore } from '../stores/tasks';
 import type { Agent, RiskFlag, Task, TaskStatus } from '../types';
 
 const agentsStore = useAgentsStore();
 const tasksStore = useTasksStore();
+const createModalOpen = ref<boolean>(false);
+const creatingTask = ref<boolean>(false);
+const createTaskError = ref<string | null>(null);
 
 const statusMeta: Record<TaskStatus, { label: string; dot: string; text: string }> = {
   todo: { label: 'To do', dot: 'bg-primary-300 shadow-[0_0_0_4px_rgba(154,152,146,0.15)]', text: 'text-text-tertiary' },
@@ -74,6 +78,37 @@ const agentSections = computed(() => {
   return sections;
 });
 
+const openCreateModal = () => {
+  createTaskError.value = null;
+  createModalOpen.value = true;
+};
+
+const closeCreateModal = () => {
+  createModalOpen.value = false;
+};
+
+const handleCreateTask = async (payload: {
+  title: string;
+  description: string;
+  assigneeApiId: number | null;
+  priority: 'high' | 'medium' | 'low';
+}) => {
+  creatingTask.value = true;
+  createTaskError.value = null;
+  await tasksStore.createTask({
+    title: payload.title,
+    description: payload.description,
+    assigneeApiId: payload.assigneeApiId,
+    priority: payload.priority,
+  });
+  if (tasksStore.error) {
+    createTaskError.value = tasksStore.error;
+  } else {
+    createModalOpen.value = false;
+  }
+  creatingTask.value = false;
+};
+
 onMounted(async () => {
   await Promise.all([agentsStore.fetchAgents(), tasksStore.fetchTasks()]);
   expandedAgents.value = new Set([...agentsStore.agents.map(item => item.id), 'unassigned']);
@@ -84,7 +119,10 @@ onMounted(async () => {
   <div class="flex-1 overflow-auto p-6">
     <div class="mb-4 flex items-center justify-between">
       <div class="text-sm text-text-tertiary">Agent grouped tasks</div>
-      <button class="px-4 py-1.5 text-sm bg-brand hover:bg-brand/90 text-white rounded transition-colors">
+      <button
+        class="px-4 py-1.5 text-sm bg-brand hover:bg-brand/90 text-white rounded transition-colors"
+        @click="openCreateModal"
+      >
         + Add Task
       </button>
     </div>
@@ -161,10 +199,16 @@ onMounted(async () => {
                 </td>
                 <td class="px-4 py-2.5 align-middle">
                   <div class="flex items-center gap-2">
-                    <button class="h-7 w-7 border border-border/70 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-tertiary flex items-center justify-center">
+                    <button
+                      class="h-7 w-7 border border-border/70 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-tertiary flex items-center justify-center"
+                      aria-label="View task diff"
+                    >
                       <PhGitDiff :size="14" />
                     </button>
-                    <button class="h-7 w-7 border border-border/70 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-tertiary flex items-center justify-center">
+                    <button
+                      class="h-7 w-7 border border-border/70 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-tertiary flex items-center justify-center"
+                      aria-label="Open task details"
+                    >
                       <PhArrowSquareOut :size="14" />
                     </button>
                   </div>
@@ -175,5 +219,13 @@ onMounted(async () => {
         </div>
       </div>
     </div>
+    <TaskCreateModal
+      :open="createModalOpen"
+      :agents="agentsStore.agents"
+      :submitting="creatingTask"
+      :error="createTaskError || tasksStore.error"
+      @close="closeCreateModal"
+      @submit="handleCreateTask"
+    />
   </div>
 </template>

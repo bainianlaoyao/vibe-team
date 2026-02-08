@@ -19,6 +19,7 @@ import { useAgentsStore } from '../stores/agents';
 import { useFileSystemStore } from '../stores/fileSystem';
 import type { FileNode, PermissionLevel } from '../types';
 import Avatar from '../components/Avatar.vue';
+import { buildPermissionOptions } from '../utils/filePermissionOptions';
 
 const router = useRouter();
 const fileStore = useFileSystemStore();
@@ -50,12 +51,6 @@ const visibleItems = computed(() => {
   if (permissionFilter.value === 'all') return filteredItems.value;
   return filteredItems.value.filter(item => item.permission === permissionFilter.value);
 });
-
-const permissionLabel: Record<PermissionLevel, string> = {
-  read: 'Readable',
-  write: 'Writable',
-  none: 'No access',
-};
 
 const getOwnerAgent = (owner: string) => {
   const normalized = owner.toLowerCase();
@@ -153,13 +148,17 @@ onMounted(async () => {
           <div class="flex items-center gap-2 bg-bg-tertiary border border-border rounded-md px-3 py-2">
             <PhMagnifyingGlass :size="14" class="text-text-tertiary" />
             <input
+              id="files-search-input"
               v-model="searchTerm"
+              name="files_search"
               class="w-40 bg-transparent text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none"
               placeholder="Search folder"
             />
           </div>
           <select
+            id="files-permission-filter"
             v-model="permissionFilter"
+            name="permission_filter"
             class="px-3 py-2 text-sm border border-border rounded bg-bg-tertiary text-text-secondary"
           >
             <option value="all">Agent access: All</option>
@@ -218,15 +217,19 @@ onMounted(async () => {
               </div>
               <div class="text-text-secondary" @click.stop>
                 <select
+                  :id="`file-permission-${item.id}`"
+                  :name="`file_permission_${item.id}`"
                   :value="item.permission"
                   class="w-full px-2 py-1 text-sm border border-border rounded bg-bg-tertiary text-text-secondary"
                   @change="setPermission(item, ($event.target as HTMLSelectElement).value as PermissionLevel | 'inherit')"
                 >
-                  <option :value="item.permission">{{ permissionLabel[item.permission] }}</option>
-                  <option value="read">Readable</option>
-                  <option value="write">Writable</option>
-                  <option value="none">No access</option>
-                  <option value="inherit">Inherit</option>
+                  <option
+                    v-for="option in buildPermissionOptions(item.permission)"
+                    :key="option.value"
+                    :value="option.value"
+                  >
+                    {{ option.label }}
+                  </option>
                 </select>
               </div>
             </button>

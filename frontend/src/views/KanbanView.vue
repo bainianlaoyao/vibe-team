@@ -116,6 +116,7 @@ onMounted(async () => {
           </div>
           <button
             class="p-2 text-text-tertiary hover:text-text-primary hover:bg-bg-tertiary rounded-lg transition-colors cursor-pointer"
+            aria-label="Close task details"
             @click="selectedTask = null"
           >
             <PhX :size="20" />

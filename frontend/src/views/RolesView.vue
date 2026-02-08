@@ -163,6 +163,7 @@ onMounted(async () => {
           <button
             type="button"
             class="p-2 rounded-md border border-border bg-bg-tertiary text-text-secondary hover:text-text-primary"
+            aria-label="Close role form"
             @click="resetDraft"
           >
             <PhX :size="14" />
@@ -173,7 +174,9 @@ onMounted(async () => {
           <div class="space-y-1">
             <label class="text-xs text-text-tertiary uppercase tracking-wide">Role name</label>
             <input
+              id="role-name-input"
               v-model="draft.name"
+              name="role_name"
               class="w-full bg-bg-tertiary border border-border rounded-md px-3 py-2 text-xs text-text-primary"
               placeholder="e.g. QA Automation"
             />
@@ -181,7 +184,9 @@ onMounted(async () => {
           <div class="space-y-1">
             <label class="text-xs text-text-tertiary uppercase tracking-wide">Description</label>
             <textarea
+              id="role-description-input"
               v-model="draft.description"
+              name="role_description"
               class="w-full bg-bg-tertiary border border-border rounded-md px-3 py-2 text-xs text-text-primary h-24 resize-none"
               placeholder="Describe responsibilities, scope, and expectations."
             />
@@ -189,7 +194,9 @@ onMounted(async () => {
           <div class="space-y-1">
             <label class="text-xs text-text-tertiary uppercase tracking-wide">Human checkpoint preference</label>
             <input
+              id="role-checkpoint-input"
               v-model="draft.checkpointPreference"
+              name="checkpoint_preference"
               class="w-full bg-bg-tertiary border border-border rounded-md px-3 py-2 text-xs text-text-primary"
               placeholder="e.g. Ask before final output and after first draft"
             />
@@ -197,7 +204,9 @@ onMounted(async () => {
           <div class="space-y-1">
             <label class="text-xs text-text-tertiary uppercase tracking-wide">Tags</label>
             <input
+              id="role-tags-input"
               v-model="draft.tags"
+              name="role_tags"
               class="w-full bg-bg-tertiary border border-border rounded-md px-3 py-2 text-xs text-text-primary"
               placeholder="Comma separated tags"
             />

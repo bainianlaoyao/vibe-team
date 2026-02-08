@@ -119,6 +119,9 @@ onMounted(async () => {
         </div>
         <div v-if="loadingUpdates" class="text-sm text-text-tertiary">Loading updates...</div>
         <div v-else-if="updatesError" class="text-sm text-error">{{ updatesError }}</div>
+        <div v-else-if="updates.length === 0" class="rounded-lg border border-border bg-bg-tertiary p-4 text-sm text-text-tertiary">
+          No recent updates yet.
+        </div>
         <div v-else class="space-y-3">
           <div
             v-for="update in updates"

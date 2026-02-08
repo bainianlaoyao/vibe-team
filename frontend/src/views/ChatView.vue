@@ -165,7 +165,9 @@ const switchAgent = async (agentId: string) => {
         <form class="flex items-center gap-3" @submit.prevent="sendMessage">
           <div class="flex-1 bg-bg-tertiary border border-border rounded-md px-3 py-2">
             <textarea
+              id="chat-message-input"
               v-model="conversationsStore.draft"
+              name="message"
               placeholder="Message your agent..."
               rows="1"
               class="w-full bg-transparent text-xs text-text-primary placeholder:text-text-tertiary focus:outline-none resize-none"

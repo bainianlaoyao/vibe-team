@@ -39,6 +39,12 @@ function mapTaskPriority(priority: number): TaskPriority {
   return 'low';
 }
 
+function toBackendPriority(priority: TaskPriority): number {
+  if (priority === 'high') return 1;
+  if (priority === 'low') return 5;
+  return 3;
+}
+
 function statusProgress(status: TaskStatus): number {
   if (status === 'done') return 100;
   if (status === 'review') return 90;
@@ -103,6 +109,7 @@ export const useTasksStore = defineStore('tasks', () => {
     title: string;
     description?: string;
     assigneeApiId?: number | null;
+    priority?: TaskPriority;
   }): Promise<void> {
     try {
       await api.createTask({
@@ -110,7 +117,7 @@ export const useTasksStore = defineStore('tasks', () => {
         title: input.title,
         description: input.description || '',
         assignee_agent_id: input.assigneeApiId ?? null,
-        priority: 3,
+        priority: toBackendPriority(input.priority || 'medium'),
       });
       await fetchTasks();
     } catch (cause) {

@@ -1,7 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
-import { mockTasks, mockAgents } from '../data/mockData';
-import type { Task } from '../types';
+import { computed, onMounted, ref } from 'vue';
 import Avatar from '../components/Avatar.vue';
 import {
   PhArrowsOutCardinal,
@@ -10,6 +8,9 @@ import {
   PhFloppyDisk,
   PhTrash,
 } from '@phosphor-icons/vue';
+import { useAgentsStore } from '../stores/agents';
+import { useTasksStore } from '../stores/tasks';
+import type { Task } from '../types';
 
 interface CanvasTask {
   task: Task;
@@ -18,19 +19,26 @@ interface CanvasTask {
 }
 
 const canvasTasks = ref<CanvasTask[]>(
-  [mockTasks[0], mockTasks[1], mockTasks[2], mockTasks[3]]
-    .filter((t): t is Task => t !== undefined)
-    .map((task, index) => ({
-      task,
-      x: index % 2 === 0 ? 100 : 400,
-      y: index < 2 ? 100 : 300,
-    }))
+  []
 );
 const zoom = ref(1);
 const canvasRef = ref<HTMLDivElement | null>(null);
+const taskSearch = ref('');
+const tasksStore = useTasksStore();
+const agentsStore = useAgentsStore();
 
-const availableTasks = mockTasks.filter(task => !canvasTasks.value.find(ct => ct.task.id === task.id));
-const getAgentById = (agentId: string | null) => agentId ? mockAgents.find(agent => agent.id === agentId) : undefined;
+const getAgentById = (agentId: string | null) =>
+  agentId ? agentsStore.agents.find(agent => agent.id === agentId) : undefined;
+
+const availableTasks = computed(() => {
+  const existing = new Set(canvasTasks.value.map(item => item.task.id));
+  const keyword = taskSearch.value.trim().toLowerCase();
+  return tasksStore.tasks.filter(task => {
+    if (existing.has(task.id)) return false;
+    if (!keyword) return true;
+    return task.title.toLowerCase().includes(keyword) || task.description.toLowerCase().includes(keyword);
+  });
+});
 
 const handleZoomIn = () => { zoom.value = Math.min(zoom.value + 0.1, 2); };
 const handleZoomOut = () => { zoom.value = Math.max(zoom.value - 0.1, 0.5); };
@@ -43,7 +51,7 @@ const handleDragStart = (e: DragEvent, task: Task) => {
 const handleCanvasDrop = (e: DragEvent) => {
   e.preventDefault();
   const taskId = e.dataTransfer!.getData('taskId');
-  const task = mockTasks.find(t => t.id === taskId);
+  const task = tasksStore.tasks.find(t => t.id === taskId);
   if (task && canvasRef.value) {
     const rect = canvasRef.value.getBoundingClientRect();
     const x = (e.clientX - rect.left) / zoom.value;
@@ -57,6 +65,24 @@ const handleCanvasDrop = (e: DragEvent) => {
 const removeTaskFromCanvas = (taskId: string) => {
   canvasTasks.value = canvasTasks.value.filter(ct => ct.task.id !== taskId);
 };
+
+const clearCanvas = () => {
+  canvasTasks.value = [];
+};
+
+const initializeCanvas = () => {
+  if (canvasTasks.value.length > 0) return;
+  canvasTasks.value = tasksStore.tasks.slice(0, 4).map((task, index) => ({
+    task,
+    x: index % 2 === 0 ? 100 : 400,
+    y: index < 2 ? 100 : 300,
+  }));
+};
+
+onMounted(async () => {
+  await Promise.all([tasksStore.fetchTasks(), agentsStore.fetchAgents()]);
+  initializeCanvas();
+});
 </script>
 
 <template>
@@ -65,6 +91,16 @@ const removeTaskFromCanvas = (taskId: string) => {
     <div class="w-64 bg-bg-tertiary border-r border-border p-4 overflow-y-auto">
       <div class="mb-6">
         <h3 class="text-xs font-semibold text-text-primary mb-3 uppercase tracking-wide">Available Tasks</h3>
+        <div class="mb-3">
+          <input
+            id="workflow-task-search-input"
+            v-model="taskSearch"
+            name="workflow_task_search"
+            type="search"
+            placeholder="Search tasks"
+            class="w-full rounded border border-border bg-bg-elevated px-3 py-2 text-xs text-text-primary"
+          />
+        </div>
         <div class="space-y-2">
           <div
             v-for="task in availableTasks"
@@ -85,7 +121,7 @@ const removeTaskFromCanvas = (taskId: string) => {
         <h3 class="text-xs font-semibold text-text-primary mb-3 uppercase tracking-wide">Agents</h3>
         <div class="space-y-2">
           <div
-            v-for="agent in mockAgents"
+            v-for="agent in agentsStore.agents"
             :key="agent.id"
             class="bg-bg-elevated border border-border rounded p-3"
           >
@@ -109,15 +145,23 @@ const removeTaskFromCanvas = (taskId: string) => {
       <!-- Toolbar -->
       <div class="bg-bg-tertiary border-b border-border px-4 py-3 flex items-center justify-between">
         <div class="flex items-center gap-2">
-          <button class="p-2 hover:bg-bg-elevated rounded transition-colors">
+          <button class="p-2 hover:bg-bg-elevated rounded transition-colors" aria-label="Fit workflow to screen">
             <PhArrowsOutCardinal :size="18" />
           </button>
           <div class="w-px h-6 bg-gray-300 mx-2" />
-          <button class="p-2 hover:bg-bg-elevated rounded transition-colors" @click="handleZoomOut">
+          <button
+            class="p-2 hover:bg-bg-elevated rounded transition-colors"
+            aria-label="Zoom out workflow"
+            @click="handleZoomOut"
+          >
             <PhMagnifyingGlassMinus :size="18" />
           </button>
           <span class="text-sm text-text-secondary px-2">{{ Math.round(zoom * 100) }}%</span>
-          <button class="p-2 hover:bg-bg-elevated rounded transition-colors" @click="handleZoomIn">
+          <button
+            class="p-2 hover:bg-bg-elevated rounded transition-colors"
+            aria-label="Zoom in workflow"
+            @click="handleZoomIn"
+          >
             <PhMagnifyingGlassPlus :size="18" />
           </button>
         </div>
@@ -126,7 +170,7 @@ const removeTaskFromCanvas = (taskId: string) => {
             <PhFloppyDisk :size="16" />
             <span>Save Workflow</span>
           </button>
-          <button class="flex items-center gap-2 px-3 py-2 text-xs bg-error hover:bg-error/90 text-white rounded transition-colors">
+          <button class="flex items-center gap-2 px-3 py-2 text-xs bg-error hover:bg-error/90 text-white rounded transition-colors" @click="clearCanvas">
             <PhTrash :size="16" />
             <span>Clear</span>
           </button>
@@ -154,6 +198,7 @@ const removeTaskFromCanvas = (taskId: string) => {
           >
             <button
               class="absolute top-2 right-2 text-text-tertiary hover:text-error"
+              aria-label="Remove task from workflow"
               @click="removeTaskFromCanvas(task.id)"
             >
               ✕

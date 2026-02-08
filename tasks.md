@@ -14,7 +14,7 @@
 
 ---
 
-## 当前状态（2026-02-07）
+## 当前状态（2026-02-08）
 
 1. 项目总体状态：`Backend MVP 按计划推进中`。
 2. Phase 1 状态：`已完成并验收通过（3/3）`。
@@ -32,6 +32,7 @@
    - P8-D：`已完成（4/4）` - 前端优化与打包
 10. 最近里程碑：
 `backend/` 已完成 API 调用器、失败恢复回归套件与极简调试面板闭环，并补齐开发环境启动自动迁移兜底（避免首次调试缺表）；调试面板已增强 Agent Playground（可执行任务并回显结果）。
+11. Phase 9 状态：`已完成并验收通过（6/6）` - 前端 Bug 修复与可访问性收口。
 
 ---
 
@@ -573,6 +574,87 @@ Phase 8 验收：
 3. [ ] Docker 部署可一键启动并通过健康检查（`docker compose config` 已通过，`docker compose up` 受本地 Docker 引擎不可用阻塞）。
 4. [x] 文档、脚本、回滚预案齐备。
 5. [x] 首版标签 `v0.1.0` 创建并冻结 MVP 范围。
+
+---
+
+## Phase 9: 前端 Bug 修复（2026-02-08 发现）
+
+目标：修复前端体验测试中发现的 UI 与功能问题。
+
+### 并行任务 P9-A：表单字段可访问性修复
+
+- Owner: Frontend
+- 依赖：无
+- 优先级：低
+- 串行任务：
+1. [x] **Chat 页面**：为消息输入框 `<textarea>` 添加 `id="chat-message-input"` 和 `name="message"`。
+2. [x] **Workflow 页面**（已禁用，待重构时一并修复）：为搜索框添加 `id` 和 `name` 属性。
+3. [x] **Files 页面**：为搜索框和下拉选择器添加 `id`/`name` 属性（共 4 处）。
+4. [x] **全局检查**：使用 `grep` 搜索所有 `<input>`、`<textarea>`、`<select>` 元素，确保都有 `id` 或 `name`。
+
+### 并行任务 P9-B："+ Add Task" 按钮功能实现
+
+- Owner: Frontend + Backend API
+- 依赖：无
+- 优先级：高
+- 串行任务：
+1. [x] 在 `TableView.vue` 中为 "+ Add Task" 按钮添加点击事件处理。
+2. [x] 创建 `TaskCreateModal.vue` 组件（任务标题、描述、分配 Agent、优先级）。
+3. [x] 调用 `POST /api/v1/tasks` 接口创建任务。
+4. [x] 创建成功后刷新任务列表并关闭模态框。
+5. [x] 添加表单验证与错误提示。
+
+### 并行任务 P9-C：Files 页面下拉选项去重
+
+- Owner: Frontend
+- 依赖：无
+- 优先级：低
+- 串行任务：
+1. [x] 检查 `FilesView.vue` 中 Agent access 下拉菜单的选项数据源。
+2. [x] 移除重复的 "Readable" 选项。
+3. [x] 添加单元测试验证下拉选项唯一性。
+
+### 并行任务 P9-D：空按钮可访问性修复
+
+- Owner: Frontend
+- 依赖：无
+- 优先级：中
+- 串行任务：
+1. [x] **Agents 页面**：为任务行操作按钮添加 `aria-label`（如 "Edit task"、"Delete task"）。
+2. [x] **Workflow 页面**（已禁用，待重构时一并修复）：为工具栏按钮添加 `aria-label`。
+3. [x] 全局审查所有图标按钮，确保有可访问性标签。
+
+### 并行任务 P9-E：Dashboard "RECENT UPDATES" 数据渲染
+
+- Owner: Frontend
+- 依赖：无
+- 优先级：低
+- 串行任务：
+1. [x] 检查 `DashboardView.vue` 中 `updates` 数据绑定逻辑。
+2. [x] 验证 `GET /api/v1/updates` 返回数据格式与前端期望是否一致。
+3. [x] 修复数据渲染问题或添加空状态提示。
+4. [x] 添加加载状态指示器。
+
+### 并行任务 P9-F：Workflow 页面重构
+
+- Owner: Frontend + Backend API
+- 依赖：P9-A, P9-D 完成后
+- 优先级：中（待评估）
+- 串行任务：
+1. [x] 评估 Workflow 页面需求：是否需要后端 API 支持，还是纯前端可视化。
+2. [x] 结论：当前采用纯前端可视化方案，无需新增 `GET/PUT /workflows/{id}`。
+3. [x] 移除 mock 数据，改为从后端 API 获取真实工作流数据。
+4. [x] 确保 Agent 名称与后端返回一致。
+5. [x] 重新启用路由和导航链接。
+6. [x] 补齐表单字段可访问性属性。
+
+Phase 9 验收：
+1. [x] 所有表单字段有 `id` 或 `name` 属性，控制台无相关警告。
+2. [x] "+ Add Task" 按钮可正常创建任务。
+3. [x] Files 页面下拉选项无重复。
+4. [x] 所有图标按钮有 `aria-label`。
+5. [x] Dashboard "RECENT UPDATES" 正确显示数据或空状态。
+6. [x] Workflow 页面重构完成后重新启用。
 
 ---
 
