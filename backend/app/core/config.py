@@ -41,6 +41,8 @@ class Settings(BaseModel):
         default_factory=lambda: [
             "http://localhost:5173",
             "http://127.0.0.1:5173",
+            "http://localhost:5175",
+            "http://127.0.0.1:5175",
         ]
     )
     cors_allow_credentials: bool = Field(default=True)
@@ -70,13 +72,15 @@ def _normalize_env(value: str | None) -> Environment:
     return "development"
 
 
-def _normalize_log_format(value: str | None) -> LogFormat:
-    if value is None:
-        return "json"
-    lowered = value.strip().lower()
-    if lowered == "console":
-        return "console"
-    return "json"
+def _normalize_log_format(value: str | None, app_env: Environment) -> LogFormat:
+    if value is not None:
+        lowered = value.strip().lower()
+        if lowered == "console":
+            return "console"
+        if lowered == "json":
+            return "json"
+    # 默认策略：开发环境用 console，其他环境用 json
+    return "console" if app_env == "development" else "json"
 
 
 def _to_decimal(value: str | None, *, default: Decimal) -> Decimal:
@@ -120,7 +124,7 @@ def load_settings() -> Settings:
         tasks_md_sync_enabled=_to_bool(os.getenv("TASKS_MD_SYNC_ENABLED"), default=False),
         tasks_md_output_path=os.getenv("TASKS_MD_OUTPUT_PATH", "../tasks.md"),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
-        log_format=_normalize_log_format(os.getenv("LOG_FORMAT")),
+        log_format=_normalize_log_format(os.getenv("LOG_FORMAT"), app_env),
         log_file=os.getenv("LOG_FILE"),
         log_db_enabled=_to_bool(os.getenv("LOG_DB_ENABLED"), default=False),
         log_db_min_level=os.getenv("LOG_DB_MIN_LEVEL", "WARNING"),
@@ -137,7 +141,12 @@ def load_settings() -> Settings:
         stuck_scan_interval_s=int(os.getenv("STUCK_SCAN_INTERVAL_S", "60")),
         cors_allow_origins=_parse_csv_list(
             os.getenv("CORS_ALLOW_ORIGINS"),
-            default=["http://localhost:5173", "http://127.0.0.1:5173"],
+            default=[
+                "http://localhost:5173",
+                "http://127.0.0.1:5173",
+                "http://localhost:5175",
+                "http://127.0.0.1:5175",
+            ],
         ),
         cors_allow_credentials=_to_bool(
             os.getenv("CORS_ALLOW_CREDENTIALS"),

@@ -73,19 +73,23 @@ def get_logger(name: str) -> structlog.stdlib.BoundLogger:
 
 def configure_logging(settings: Settings) -> None:
     level = settings.log_level.upper()
-    timestamper = structlog.processors.TimeStamper(fmt="iso", utc=True)
+
+    # 区分 Console 和 JSON 的时间戳格式
+    if settings.log_format == "console":
+        # 开发环境使用简短时间，本地时区，便于阅读
+        timestamper = structlog.processors.TimeStamper(fmt="%H:%M:%S", utc=False)
+        renderer: object = structlog.dev.ConsoleRenderer(colors=True)
+    else:
+        # 生产环境保持 ISO 格式
+        timestamper = structlog.processors.TimeStamper(fmt="iso", utc=True)
+        renderer = structlog.processors.JSONRenderer()
+
     shared_processors: list[object] = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
         timestamper,
     ]
-
-    renderer: object
-    if settings.log_format == "console":
-        renderer = structlog.dev.ConsoleRenderer()
-    else:
-        renderer = structlog.processors.JSONRenderer()
 
     handlers: dict[str, dict[str, object]] = {
         "stdout": {
@@ -106,6 +110,9 @@ def configure_logging(settings: Settings) -> None:
         }
 
     configured_handlers = list(handlers)
+
+    # 第三方库降噪：非 DEBUG 模式下设为 WARNING
+    third_party_level = "WARNING" if level != "DEBUG" else level
 
     logging.config.dictConfig(
         {
@@ -131,7 +138,7 @@ def configure_logging(settings: Settings) -> None:
                 },
                 "uvicorn": {
                     "handlers": configured_handlers,
-                    "level": level,
+                    "level": "INFO",  # 保持启动信息
                     "propagate": False,
                 },
                 "uvicorn.error": {
@@ -141,12 +148,22 @@ def configure_logging(settings: Settings) -> None:
                 },
                 "uvicorn.access": {
                     "handlers": configured_handlers,
-                    "level": level,
+                    "level": "WARNING",  # 避免与 TraceContextMiddleware 重复
                     "propagate": False,
                 },
                 "sqlalchemy": {
                     "handlers": configured_handlers,
-                    "level": level,
+                    "level": third_party_level,  # 默认隐藏 SQL 语句
+                    "propagate": False,
+                },
+                "httpcore": {
+                    "handlers": configured_handlers,
+                    "level": third_party_level,
+                    "propagate": False,
+                },
+                "httpx": {
+                    "handlers": configured_handlers,
+                    "level": third_party_level,
                     "propagate": False,
                 },
             },
@@ -179,11 +196,6 @@ class TraceContextMiddleware(BaseHTTPMiddleware):
         request.state.trace_id = trace_id
         clear_log_context()
         bind_log_context(trace_id=trace_id)
-        self._logger.info(
-            "request.received",
-            method=request.method,
-            path=request.url.path,
-        )
         try:
             response = await call_next(request)
         except Exception:
