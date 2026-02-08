@@ -27,9 +27,14 @@ def get_engine() -> Engine:
     global _engine
     if _engine is None:
         settings = get_settings()
+        # SQLALCHEMY_ECHO 优先；未设置时，仅在 debug 非 test 模式下启用
+        if settings.sqlalchemy_echo is not None:
+            echo = settings.sqlalchemy_echo
+        else:
+            echo = settings.debug and not settings.testing
         _engine = create_engine_from_url(
             settings.database_url,
-            echo=settings.debug and not settings.testing,
+            echo=echo,
         )
     return _engine
 
