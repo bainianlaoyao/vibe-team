@@ -3,9 +3,15 @@ from __future__ import annotations
 import os
 from decimal import Decimal
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
+
+# 加载 .env 文件（相对于 backend 目录）
+_env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+load_dotenv(_env_path)
 
 Environment = Literal["development", "test", "production"]
 LogFormat = Literal["json", "console"]
@@ -29,6 +35,7 @@ class Settings(BaseModel):
     log_file: str | None = Field(default=None)
     log_db_enabled: bool = Field(default=False)
     log_db_min_level: str = Field(default="WARNING")
+    sqlalchemy_echo: bool | None = Field(default=None)  # None = auto (debug mode)
     local_api_key: str | None = Field(default=None)
     db_auto_init: bool = Field(default=True)
     db_auto_seed: bool = Field(default=True)
@@ -41,6 +48,8 @@ class Settings(BaseModel):
         default_factory=lambda: [
             "http://localhost:5173",
             "http://127.0.0.1:5173",
+            "http://localhost:5174",
+            "http://127.0.0.1:5174",
             "http://localhost:5175",
             "http://127.0.0.1:5175",
         ]
@@ -57,6 +66,18 @@ def _to_bool(value: str | None, *, default: bool) -> bool:
     if normalized in {"0", "false", "no", "off"}:
         return False
     return default
+
+
+def _to_bool_or_none(value: str | None) -> bool | None:
+    """Parse boolean from env var, return None if not set (for auto behavior)."""
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return None
 
 
 def _normalize_env(value: str | None) -> Environment:
@@ -128,6 +149,7 @@ def load_settings() -> Settings:
         log_file=os.getenv("LOG_FILE"),
         log_db_enabled=_to_bool(os.getenv("LOG_DB_ENABLED"), default=False),
         log_db_min_level=os.getenv("LOG_DB_MIN_LEVEL", "WARNING"),
+        sqlalchemy_echo=_to_bool_or_none(os.getenv("SQLALCHEMY_ECHO")),
         local_api_key=os.getenv("LOCAL_API_KEY"),
         db_auto_init=_to_bool(os.getenv("DB_AUTO_INIT"), default=default_db_auto_init),
         db_auto_seed=_to_bool(os.getenv("DB_AUTO_SEED"), default=default_db_auto_seed),
@@ -144,6 +166,8 @@ def load_settings() -> Settings:
             default=[
                 "http://localhost:5173",
                 "http://127.0.0.1:5173",
+                "http://localhost:5174",
+                "http://127.0.0.1:5174",
                 "http://localhost:5175",
                 "http://127.0.0.1:5175",
             ],
