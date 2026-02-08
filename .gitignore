@@ -39,6 +39,13 @@ backend/coverage.xml
 node_modules/
 frontend/dist/
 frontend/.vite/
+frontend/.playwright/
+
+# Playwright
+.playwright/
+**/playwright/.cache/
+**/playwright-report/
+**/test-results/
 .agents
 
 *cache*
