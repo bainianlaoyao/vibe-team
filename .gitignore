@@ -18,3 +18,4 @@ frontend/.vite/
 .agents
 
 *cache*
+.env
