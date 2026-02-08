@@ -9,3 +9,10 @@ backend/coverage.xml
 # Python bytecode
 **/__pycache__/
 *.pyc
+
+# Frontend artifacts
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.local
+.agents

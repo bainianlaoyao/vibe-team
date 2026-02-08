@@ -5,19 +5,24 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.agents import router as agents_router
 from app.api.comments import router as comments_router
 from app.api.conversations import router as conversations_router
+from app.api.dashboard import router as dashboard_router
 from app.api.debug import router as debug_router
 from app.api.errors import register_exception_handlers
 from app.api.events import router as events_router
+from app.api.files import router as files_router
 from app.api.health import router as health_router
 from app.api.inbox import router as inbox_router
 from app.api.logs import router as logs_router
 from app.api.metrics import router as metrics_router
+from app.api.roles import router as roles_router
 from app.api.tasks import router as tasks_router
 from app.api.tools import router as tools_router
+from app.api.usage import router as usage_router
 from app.api.ws_conversations import router as ws_conversations_router
 from app.core.auth import LocalApiKeyMiddleware
 from app.core.config import get_settings
@@ -63,6 +68,13 @@ def create_app() -> FastAPI:
     )
 
     register_exception_handlers(app)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_allow_origins,
+        allow_credentials=settings.cors_allow_credentials,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.add_middleware(LocalApiKeyMiddleware, api_key=settings.local_api_key)
     app.add_middleware(TraceContextMiddleware)
     app.include_router(debug_router)
@@ -70,12 +82,16 @@ def create_app() -> FastAPI:
     app.include_router(agents_router, prefix="/api/v1")
     app.include_router(comments_router, prefix="/api/v1")
     app.include_router(conversations_router, prefix="/api/v1")
+    app.include_router(dashboard_router, prefix="/api/v1")
     app.include_router(events_router, prefix="/api/v1")
+    app.include_router(files_router, prefix="/api/v1")
     app.include_router(inbox_router, prefix="/api/v1")
     app.include_router(logs_router, prefix="/api/v1")
     app.include_router(metrics_router, prefix="/api/v1")
+    app.include_router(roles_router, prefix="/api/v1")
     app.include_router(tasks_router, prefix="/api/v1")
     app.include_router(tools_router, prefix="/api/v1")
+    app.include_router(usage_router, prefix="/api/v1")
     app.include_router(ws_conversations_router)
     return app
 

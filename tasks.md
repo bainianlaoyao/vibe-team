@@ -24,7 +24,12 @@
 6. Phase 5 状态：`已完成并验收通过（4/4）`。
 7. Phase 6 状态：`已完成并验收通过（3/3）`。
 8. Phase 7 状态：`已完成并验收通过（6/6）` - 人机协作对话。
-9. Phase 8 状态：`待开始（0/3）` - 联调、验收与发布。
+9. Phase 8 状态：`进行中（4/5）` - 联调、验收与发布（待 Docker 引擎可用后完成容器健康检查实跑）。
+   - P8-A0：`已完成（10/10）` - 前端 API 基础设施（联调前置）
+   - P8-A：`已完成（10/10）` - 前后端联调（依赖 P8-A0）
+   - P8-B：`已完成（5/5）` - 端到端验收用例
+   - P8-C：`已完成（5/5）` - 发布与运维交付
+   - P8-D：`已完成（4/4）` - 前端优化与打包
 10. 最近里程碑：
 `backend/` 已完成 API 调用器、失败恢复回归套件与极简调试面板闭环，并补齐开发环境启动自动迁移兜底（避免首次调试缺表）；调试面板已增强 Agent Playground（可执行任务并回显结果）。
 
@@ -439,60 +444,135 @@ Phase 7 验收：
 
 目标：完成前后端联调、端到端验收和首版发布准备。
 
+### 技术栈决策（已确认）
+
+- **前端脚手架**：Vite + Vue 3（已完成，位于 `frontend/`）
+- **状态管理**：Pinia（Setup Store 语法）
+- **路由**：Vue Router 4（懒加载）
+- **UI 组件**：@phosphor-icons/vue + Tailwind CSS v4
+- **API 客户端**：手写 fetch（MVP 阶段），后续可迁移至 openapi-typescript
+- **WebSocket 消费**：原生 WebSocket API
+- **后端 CORS**：`main.py` 中加入 `CORSMiddleware`
+- **认证方案**：MVP 本地 token / API key header
+
+### 前端页面与后端 API 对照表
+
+| 页面/模块 | 路由 | 核心功能 | 后端 API |
+|----------|------|---------|---------|
+| Dashboard | `/` | 统计卡片、最近更新、Agent 状态 | `GET /agents`, `GET /tasks/stats`, `GET /updates` |
+| Inbox | `/inbox` | 消息列表、标记已读、详情 | `GET /inbox`, `PATCH /inbox/{id}/read` |
+| Chat | `/chat` | Agent 对话、消息发送、实时响应 | `WS /ws/conversations/{id}`, `GET/POST /conversations/{id}/messages` |
+| Table View | `/agents/table` | 按 Agent 分组任务、筛选排序 | `GET /tasks?group_by=agent`, `GET /agents/{id}/health` |
+| Kanban View | `/agents/kanban` | 看板拖拽、状态更新 | `GET /tasks`, `PATCH /tasks/{id}` |
+| Customize | `/agents/customize` | Agent 配置编辑 | `GET/PUT /agents/{id}/config` |
+| Workflow | `/workflow` | 可视化工作流画布 | `GET/PUT /workflows/{id}`, `POST/DELETE /workflows/{id}/nodes` |
+| Files | `/files` | 文件树、权限管理 | `GET /files`, `PATCH /files/{id}/permissions` |
+| File Viewer | `/files/view/:id` | 文件预览、元信息 | `GET /files/{id}/content`, `GET /files/{id}` |
+| Roles | `/roles` | 角色配置 CRUD | `GET/POST/PUT/DELETE /roles` |
+| API Usage | `/api` | 预算、健康度、趋势图 | `GET /usage/budget`, `GET /usage/timeline`, `GET /usage/errors` |
+
+### 并行任务 P8-A0：前端 API 基础设施（联调前置）
+
+- Owner: Frontend
+- 依赖：Phase 7 完成
+- 说明：当前前端仅有 UI 壳子，所有交互控件操作的是本地 mock 数据，刷新即丢失。需先搭建 API 服务层和状态管理，才能进行真正的联调。
+- 串行任务：
+1. [x] **API 服务层**：创建 `frontend/src/services/api.ts`，封装 fetch 客户端（baseURL、错误处理、token 注入）。
+2. [x] **WebSocket 服务**：创建 `frontend/src/services/websocket.ts`，封装 WS 连接管理（心跳、断线重连、消息队列）。
+3. [x] **Agents Store**：创建 `frontend/src/stores/agents.ts`，替换 `mockAgents`，实现 `fetchAgents`、`updateAgent` 等 action。
+4. [x] **Tasks Store**：创建 `frontend/src/stores/tasks.ts`，替换 `mockTasks`，实现 CRUD + 状态流转 action。
+5. [x] **Inbox Store**：创建 `frontend/src/stores/inbox.ts`，替换 `mockInbox`，实现列表加载、标记已读、关闭项 action。
+6. [x] **Conversations Store**：创建 `frontend/src/stores/conversations.ts`，管理对话列表、消息历史、WebSocket 消息收发。
+7. [x] **Usage Store**：创建 `frontend/src/stores/usage.ts`，替换 `mockApiUsage`，实现预算、趋势、错误流查询。
+8. [x] **View 组件改造**：逐个更新 View 组件，从直接操作 mock 数据改为调用 store action。
+   - `DashboardView.vue`：调用 agents/tasks store
+   - `InboxView.vue`：调用 inbox store
+   - `ChatView.vue`：调用 conversations store + WebSocket
+   - `TableView.vue` / `KanbanView.vue`：调用 tasks store
+   - `ApiView.vue`：调用 usage store
+9. [x] **加载与错误状态**：为每个 store 增加 `loading`、`error` 状态，View 组件显示加载中/错误提示。
+10. [x] **环境变量配置**：创建 `.env.development` 和 `.env.production`，配置 `VITE_API_BASE_URL`。
+
+---
+
 ### 并行任务 P8-A：前后端联调
 
 - Owner: Backend API + Frontend
-- 依赖：Phase 7 完成
-- 待决策清单（进入 Phase 8 前需确认）：
-  - [ ] 前端脚手架：Vite + Vue 3（推荐）vs Nuxt 3
-  - [ ] API 客户端生成策略：基于 OpenAPI schema 自动生成（openapi-typescript / orval）vs 手写 fetch/axios
-  - [ ] 状态管理：Pinia（推荐）vs 纯 Composables
-  - [ ] 后端 CORS 配置：`main.py` 中加入 `CORSMiddleware`
-  - [ ] 认证方案：MVP 本地 token / API key header（最小实现）
-  - [ ] SSE 前端消费：原生 EventSource API vs fetch stream
+- 依赖：P8-A0 完成
 - 串行任务：
-1. [ ] 联调任务列表、看板状态流、收件箱视图接口。
-2. [ ] 联调运行日志流与干预操作。
-3. [ ] 修复契约不一致问题并更新 API 文档。
-4. [ ] 产出联调问题清单与关闭记录。
+1. [x] **Dashboard 联调**：统计接口 `GET /tasks/stats`、Agent 列表 `GET /agents`、最近更新 `GET /updates`。
+2. [x] **Inbox 联调**：收件箱列表 `GET /inbox`、标记已读 `PATCH /inbox/{id}/read`、关闭项 `POST /inbox/{id}/close`。
+3. [x] **Chat 联调**：WebSocket 连接 `WS /ws/conversations/{id}`、消息协议（`user.message`、`assistant.chunk`、`user.interrupt`）。
+4. [x] **Agents 联调**：任务 CRUD `GET/POST/PATCH /tasks`、Agent 健康度 `GET /agents/{id}/health`、干预操作 `POST /tasks/{id}/pause|resume|retry`。
+5. [x] **Files 联调**：文件树 `GET /files`、权限设置 `PATCH /files/{id}/permissions`、内容预览 `GET /files/{id}/content`。
+6. [x] **Roles 联调**：角色配置 CRUD `GET/POST/PUT/DELETE /roles`。
+7. [x] **API Usage 联调**：预算 `GET /usage/budget`、趋势 `GET /usage/timeline`、错误流 `GET /usage/errors`。
+8. [x] **CORS 配置**：后端 `main.py` 添加 `CORSMiddleware`，允许前端域名。
+9. [x] 修复契约不一致问题并更新 OpenAPI 文档。
+10. [x] 产出联调问题清单与关闭记录（`docs/integration-issues.md`）。
 
 ### 并行任务 P8-B：端到端验收用例
 
 - Owner: QA
-- 依赖：P8-A step 2
-- 待决策清单（进入 Phase 8 前需确认）：
-  - [ ] E2E 测试范围：纯 API 端到端（pytest + TestClient）vs 浏览器 UI 端到端 vs 两者兼有
-  - [ ] 浏览器 E2E 框架（如需要）：Playwright（推荐，Python/JS 双支持）vs Cypress
-  - [ ] CI 平台：GitHub Actions（推荐）vs GitLab CI
-  - [ ] 测试数据管理：复用已有 `seed.py` + pytest fixture 工厂
+- 依赖：P8-A step 4
+- 技术栈决策：
+  - E2E 测试：API 端到端（pytest + TestClient）+ 浏览器 E2E（Playwright）
+  - CI 平台：GitHub Actions
+  - 测试数据：复用 `seed.py` + pytest fixture
 - 串行任务：
-1. [ ] 设计 MVP 验收用例（成功流、失败流、人工干预流）。
-2. [ ] 建立自动化 E2E（可先覆盖核心 happy path）。
-3. [ ] 执行回归并归档报告。
-4. [ ] 对未覆盖风险给出补救措施。
+1. [x] 设计 MVP 验收用例矩阵：
+   - **Dashboard 流**：加载统计、Agent 状态显示
+   - **任务管理流**：创建任务 → 分配 Agent → 状态流转 → 完成
+   - **对话交互流**：发送消息 → Agent 响应 → 工具调用透明 → 用户打断
+   - **文件权限流**：设置权限 → 权限继承验证
+   - **失败恢复流**：任务失败 → 自动重试 → 人工干预
+2. [x] 建立 API E2E 自动化（`tests/e2e/`）：
+   - `test_e2e_dashboard.py`：统计数据正确性
+   - `test_e2e_task_lifecycle.py`：任务全生命周期
+   - `test_e2e_conversation.py`：WebSocket 对话流
+   - `test_e2e_files.py`：文件权限继承
+3. [x] 建立浏览器 E2E 自动化（`tests/e2e_browser/`）：
+   - 核心 happy path：登录 → Dashboard → 创建任务 → 对话 → 完成
+4. [x] 执行回归并归档报告（`docs/e2e-report.md`）。
+5. [x] 对未覆盖风险给出补救措施。
 
 ### 并行任务 P8-C：发布与运维交付
 
 - Owner: Infra
-- 依赖：P8-B step 3
-- 待决策清单（进入 Phase 8 前需确认）：
-  - [ ] 容器化方案：Docker（推荐）vs Podman vs 直接 systemd
-  - [ ] 编排方案：docker-compose（推荐，MVP 单机）vs K8s vs 云 PaaS（Fly.io / Railway）
-  - [ ] CI/CD 平台：与 P8-B 统一（GitHub Actions 推荐）
-  - [ ] 生产数据库：继续 SQLite（单用户场景可行）vs 升级 PostgreSQL（并发写入需求时）
-  - [ ] 密钥管理：`.env` 文件 + docker secrets（MVP）vs Vault
-  - [ ] 版本号策略：语义版本 + Git tag + CHANGELOG.md（已有）
-  - [ ] 数据库迁移生产策略：Alembic upgrade（AGENTS.md 已约定 expand/contract 模式）
+- 依赖：P8-B step 4
+- 技术栈决策：
+  - 容器化：Docker + docker-compose（MVP 单机）
+  - 生产数据库：SQLite（单用户），后续按需升级 PostgreSQL
+  - 密钥管理：`.env` + docker secrets
+  - 版本号：语义版本 + Git tag + CHANGELOG.md
 - 串行任务：
-1. [ ] 固化发布脚本与版本号策略。
-2. [ ] 输出部署文档、配置清单、密钥清单。
-3. [ ] 输出上线后 7 天监控指标与值班规则。
-4. [ ] 创建首版里程碑标签并冻结 MVP 范围。
+1. [x] 编写 `Dockerfile`（后端）与 `docker-compose.yml`（前后端 + 数据库卷）。
+2. [x] 固化发布脚本（`scripts/release.sh`）：版本号更新、构建、打标签。
+3. [x] 输出部署文档（`docs/deployment.md`）：
+   - 环境要求、配置清单、密钥清单
+   - 启动命令、健康检查、日志查看
+4. [x] 输出运维手册（`docs/operations.md`）：
+   - 上线后 7 天监控指标（成功率、延迟、错误率、成本）
+   - 值班规则与告警响应 SOP
+   - 回滚预案与数据备份策略
+5. [x] 创建首版里程碑标签（`v0.1.0`）并冻结 MVP 范围。
+
+### 并行任务 P8-D：前端优化与打包
+
+- Owner: Frontend
+- 依赖：P8-A step 9
+- 串行任务：
+1. [x] 配置生产环境变量（`VITE_API_BASE_URL`）。
+2. [x] 优化打包配置（代码分割、Tree Shaking、gzip）。
+3. [x] 添加错误边界与加载状态处理。
+4. [x] 输出前端构建文档（`frontend/README.md`）。
 
 Phase 8 验收：
-1. [ ] MVP 主链路全通过。
-2. [ ] 文档、脚本、回滚预案齐备。
-3. [ ] 满足首版发布条件。
+1. [x] 所有页面与后端 API 联调通过，无契约不一致问题。
+2. [x] E2E 验收用例全部通过（API + 浏览器）。
+3. [ ] Docker 部署可一键启动并通过健康检查（`docker compose config` 已通过，`docker compose up` 受本地 Docker 引擎不可用阻塞）。
+4. [x] 文档、脚本、回滚预案齐备。
+5. [x] 首版标签 `v0.1.0` 创建并冻结 MVP 范围。
 
 ---
 

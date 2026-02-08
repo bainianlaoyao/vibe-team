@@ -15,6 +15,7 @@ from app.db.models import Event, InboxItem, utc_now
 from app.db.session import get_session
 
 INBOX_ITEM_CLOSED_EVENT_TYPE = "inbox.item.closed"
+INBOX_ITEM_READ_EVENT_TYPE = "inbox.item.read"
 USER_INPUT_SUBMITTED_EVENT_TYPE = "user.input.submitted"
 DEFAULT_RESOLVER = "user"
 
@@ -34,6 +35,7 @@ class InboxItemRead(BaseModel):
     resolved_at: datetime | None
     resolver: str | None
     version: int
+    is_read: bool = False
     model_config = ConfigDict(
         from_attributes=True,
         json_schema_extra={
@@ -50,6 +52,7 @@ class InboxItemRead(BaseModel):
                 "resolved_at": None,
                 "resolver": None,
                 "version": 1,
+                "is_read": False,
             }
         },
     )
@@ -68,6 +71,11 @@ class InboxCloseRequest(BaseModel):
             }
         }
     )
+
+
+class InboxReadRequest(BaseModel):
+    reader: str | None = Field(default=DEFAULT_RESOLVER, min_length=1, max_length=120)
+    trace_id: str | None = Field(default=None, max_length=64)
 
 
 DbSession = Annotated[Session, Depends(get_session)]
@@ -107,6 +115,18 @@ def _commit_or_conflict(session: Session) -> None:
         ) from exc
 
 
+def _list_read_item_ids(session: Session, *, project_id: int | None = None) -> set[int]:
+    statement = select(Event).where(Event.event_type == INBOX_ITEM_READ_EVENT_TYPE)
+    if project_id is not None:
+        statement = statement.where(Event.project_id == project_id)
+    read_item_ids: set[int] = set()
+    for row in session.exec(statement).all():
+        item_id = row.payload_json.get("item_id")
+        if isinstance(item_id, int):
+            read_item_ids.add(item_id)
+    return read_item_ids
+
+
 @router.get(
     "",
     response_model=list[InboxItemRead],
@@ -131,7 +151,52 @@ def list_inbox_items(
     if status_filter is not None:
         statement = statement.where(InboxItem.status == status_filter.value)
     statement = statement.offset(offset).limit(limit)
-    return [InboxItemRead.model_validate(item) for item in session.exec(statement).all()]
+    rows = list(session.exec(statement).all())
+    read_item_ids = _list_read_item_ids(session, project_id=project_id)
+    items: list[InboxItemRead] = []
+    for item in rows:
+        row = InboxItemRead.model_validate(item)
+        row.is_read = item.id in read_item_ids or str(item.status) == InboxStatus.CLOSED.value
+        items.append(row)
+    return items
+
+
+@router.patch(
+    "/{item_id}/read",
+    response_model=InboxItemRead,
+    responses=cast(
+        dict[int | str, dict[str, Any]],
+        error_response_docs(
+            status.HTTP_404_NOT_FOUND,
+            status.HTTP_409_CONFLICT,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+        ),
+    ),
+)
+def mark_inbox_item_read(
+    item_id: int,
+    payload: InboxReadRequest,
+    session: DbSession,
+) -> InboxItemRead:
+    item = _get_inbox_item_or_404(session, item_id)
+    reader = _normalized_optional_text(payload.reader) or DEFAULT_RESOLVER
+    session.add(
+        Event(
+            project_id=item.project_id,
+            event_type=INBOX_ITEM_READ_EVENT_TYPE,
+            payload_json={
+                "item_id": item.id,
+                "project_id": item.project_id,
+                "reader": reader,
+            },
+            trace_id=payload.trace_id,
+        )
+    )
+    _commit_or_conflict(session)
+    session.refresh(item)
+    row = InboxItemRead.model_validate(item)
+    row.is_read = True
+    return row
 
 
 @router.post(
@@ -220,4 +285,6 @@ def close_inbox_item(item_id: int, payload: InboxCloseRequest, session: DbSessio
 
     _commit_or_conflict(session)
     session.refresh(item)
-    return InboxItemRead.model_validate(item)
+    row = InboxItemRead.model_validate(item)
+    row.is_read = True
+    return row

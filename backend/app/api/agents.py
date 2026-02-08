@@ -9,7 +9,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.api.errors import ApiException, error_response_docs
-from app.db.models import Agent, Project, Task, utc_now
+from app.db.enums import TaskRunStatus, TaskStatus
+from app.db.models import Agent, Project, Task, TaskRun, utc_now
 from app.db.session import get_session
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -106,6 +107,17 @@ class AgentRead(BaseModel):
     )
 
 
+class AgentHealthRead(BaseModel):
+    agent_id: int
+    health: int = Field(ge=0, le=100)
+    state: str
+    active_task_count: int
+    blocked_task_count: int
+    failed_task_count: int
+    done_task_count: int
+    active_run_count: int
+
+
 DbSession = Annotated[Session, Depends(get_session)]
 
 
@@ -141,6 +153,14 @@ def _commit_or_conflict(session: Session) -> None:
             "RESOURCE_CONFLICT",
             "Operation violates a database constraint.",
         ) from exc
+
+
+def _health_state_from_score(score: int) -> str:
+    if score >= 75:
+        return "healthy"
+    if score >= 45:
+        return "degraded"
+    return "critical"
 
 
 @router.get(
@@ -199,6 +219,54 @@ def create_agent(payload: AgentCreate, session: DbSession) -> AgentRead:
 )
 def get_agent(agent_id: int, session: DbSession) -> AgentRead:
     return AgentRead.model_validate(_get_agent_or_404(session, agent_id))
+
+
+@router.get(
+    "/{agent_id}/health",
+    response_model=AgentHealthRead,
+    responses=cast(
+        dict[int | str, dict[str, Any]],
+        error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_ENTITY),
+    ),
+)
+def get_agent_health(agent_id: int, session: DbSession) -> AgentHealthRead:
+    _get_agent_or_404(session, agent_id)
+    tasks = list(session.exec(select(Task).where(Task.assignee_agent_id == agent_id)).all())
+    active_runs = list(
+        session.exec(
+            select(TaskRun).where(
+                TaskRun.agent_id == agent_id,
+                cast(Any, TaskRun.run_status).in_(
+                    [
+                        TaskRunStatus.RUNNING.value,
+                        TaskRunStatus.RETRY_SCHEDULED.value,
+                        TaskRunStatus.INTERRUPTED.value,
+                    ]
+                ),
+            )
+        ).all()
+    )
+    blocked_task_count = sum(1 for task in tasks if str(task.status) == TaskStatus.BLOCKED.value)
+    failed_task_count = sum(1 for task in tasks if str(task.status) == TaskStatus.FAILED.value)
+    done_task_count = sum(1 for task in tasks if str(task.status) == TaskStatus.DONE.value)
+    active_task_count = sum(1 for task in tasks if str(task.status) == TaskStatus.RUNNING.value)
+
+    raw_score = 100
+    raw_score -= blocked_task_count * 20
+    raw_score -= failed_task_count * 15
+    raw_score -= len(active_runs) * 5
+    raw_score += done_task_count * 2
+    health = max(0, min(100, raw_score))
+    return AgentHealthRead(
+        agent_id=agent_id,
+        health=health,
+        state=_health_state_from_score(health),
+        active_task_count=active_task_count,
+        blocked_task_count=blocked_task_count,
+        failed_task_count=failed_task_count,
+        done_task_count=done_task_count,
+        active_run_count=len(active_runs),
+    )
 
 
 @router.patch(

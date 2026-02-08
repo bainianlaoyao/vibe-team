@@ -1,0 +1,12 @@
+.venv
+.mypy_cache
+.pytest_cache
+.ruff_cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+beebeebrain.db
+.coverage
+coverage.xml
+tests

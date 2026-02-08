@@ -1,5 +1,41 @@
-# Vue 3 + TypeScript + Vite
+# BeeBeeBrain Frontend
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+## Prerequisites
+- Node.js 20+
+- npm (project lockfile is `package-lock.json`)
 
-Learn more about the recommended Project Setup and IDE Support in the [Vue Docs TypeScript Guide](https://vuejs.org/guide/typescript/overview.html#project-setup).
+## Environment
+- Development: `frontend/.env.development`
+- Production: `frontend/.env.production`
+
+Key vars:
+- `VITE_API_BASE_URL`
+- `VITE_PROJECT_ID`
+- Optional: `VITE_API_TOKEN`
+
+## Run
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+## Build
+```bash
+cd frontend
+npm run build
+npm run preview -- --host 127.0.0.1 --port 4173
+```
+
+Build optimizations:
+- Rollup manual chunks (`framework`, `icons`)
+- CSS code splitting
+- ES2020 target
+
+## Browser E2E
+```bash
+cd frontend
+$env:PLAYWRIGHT_BROWSERS_PATH='.playwright'   # PowerShell
+npx playwright install chromium
+npm run test:e2e
+```

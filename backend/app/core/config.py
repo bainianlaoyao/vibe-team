@@ -37,6 +37,13 @@ class Settings(BaseModel):
     stuck_repeat_threshold: float = Field(default=0.8, ge=0, le=1)
     stuck_error_rate_threshold: float = Field(default=0.6, ge=0, le=1)
     stuck_scan_interval_s: int = Field(default=60, ge=1)
+    cors_allow_origins: list[str] = Field(
+        default_factory=lambda: [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ]
+    )
+    cors_allow_credentials: bool = Field(default=True)
 
 
 def _to_bool(value: str | None, *, default: bool) -> bool:
@@ -81,6 +88,14 @@ def _to_decimal(value: str | None, *, default: Decimal) -> Decimal:
         return default
 
 
+def _parse_csv_list(value: str | None, *, default: list[str]) -> list[str]:
+    if value is None:
+        return list(default)
+    items = [part.strip() for part in value.split(",")]
+    normalized = [item for item in items if item]
+    return normalized or list(default)
+
+
 def load_settings() -> Settings:
     app_env = _normalize_env(os.getenv("APP_ENV"))
     default_debug = app_env != "production"
@@ -120,6 +135,14 @@ def load_settings() -> Settings:
         stuck_repeat_threshold=float(os.getenv("STUCK_REPEAT_THRESHOLD", "0.8")),
         stuck_error_rate_threshold=float(os.getenv("STUCK_ERROR_RATE_THRESHOLD", "0.6")),
         stuck_scan_interval_s=int(os.getenv("STUCK_SCAN_INTERVAL_S", "60")),
+        cors_allow_origins=_parse_csv_list(
+            os.getenv("CORS_ALLOW_ORIGINS"),
+            default=["http://localhost:5173", "http://127.0.0.1:5173"],
+        ),
+        cors_allow_credentials=_to_bool(
+            os.getenv("CORS_ALLOW_CREDENTIALS"),
+            default=True,
+        ),
     )
 
 

@@ -324,6 +324,38 @@ backend/
 7. 数据层扩展：新增 migration `9c1a2b3d4e5f_add_comment_conversation_link.py`，为 `comments` 增加 `conversation_id`（SQLite 采用 batch alter）。
 8. 回归测试补齐：新增 `tests/test_conversation_executor.py`、`tests/test_comments_reply_api.py`，并扩展 `tests/test_conversations_api.py`、`tests/test_ws_conversations.py`、`tests/test_db_schema.py`。
 
+## Phase 8：联调、验收与发布
+
+实现落地（P8-A0，2026-02-07）：
+1. 前端新增 API 基础设施：`frontend/src/services/api.ts`（fetch 客户端、统一错误处理、token 注入）。
+2. 前端新增 WebSocket 基础设施：`frontend/src/services/websocket.ts`（心跳、断线重连、消息队列）。
+3. 前端新增 Pinia store：`agents/tasks/inbox/conversations/usage/roles/fileSystem`，替换原 mock 数据源。
+4. 前端核心视图完成 store 化改造：`DashboardView`、`InboxView`、`ChatView`、`TableView`、`KanbanView`、`ApiView`、`FilesView`、`FileViewer`、`RolesView`。
+5. 前端环境变量分离：`frontend/.env.development` 与 `frontend/.env.production`。
+
+实现落地（P8-A，2026-02-07）：
+1. 后端补齐联调接口：`app/api/dashboard.py`、`app/api/usage.py`、`app/api/files.py`、`app/api/roles.py`。
+2. 扩展现有接口：`app/api/agents.py` 新增 `GET /agents/{id}/health`；`app/api/inbox.py` 新增 `PATCH /inbox/{id}/read`。
+3. 接入 CORS：`app/main.py` 增加 `CORSMiddleware`；`app/core/config.py` 增加 `CORS_ALLOW_ORIGINS/CORS_ALLOW_CREDENTIALS` 配置。
+4. 联调问题清单归档：`docs/integration-issues.md`。
+
+实现落地（P8-B，2026-02-07）：
+1. 新增综合联调回归：`backend/tests/test_phase8_integration_api.py`（Dashboard/Inbox/Usage/Files/Roles/CORS/OpenAPI）。
+2. 新增 API E2E 套件目录：`backend/tests/e2e/`，覆盖 Dashboard、任务生命周期、对话流、文件权限流。
+3. 新增浏览器 E2E：`frontend/tests/e2e_browser/happy-path.spec.ts` 与 Playwright 配置。
+4. E2E 报告归档：`docs/e2e-report.md`。
+
+实现落地（P8-C，2026-02-07）：
+1. 发布交付补齐：`backend/Dockerfile`、`frontend/Dockerfile`、`frontend/nginx.conf`、`docker-compose.yml`。
+2. 发布脚本补齐：`scripts/release.sh`（版本更新、质量门禁、构建、打标签）。
+3. 部署文档：`docs/deployment.md`。
+4. 运维手册：`docs/operations.md`。
+
+实现落地（P8-D，2026-02-07）：
+1. 前端打包优化落地：`frontend/vite.config.ts`（manualChunks、CSS 分割、ES2020 目标）。
+2. 前端错误边界补齐：`frontend/src/App.vue` 增加全局错误捕获提示。
+3. 前端构建与 E2E 指南更新：`frontend/README.md`。
+
 ### 7.0 背景与目标
 
 产品设计要求用户不仅能"管理"Agent，还需与 Agent 进行**实时协作**：
