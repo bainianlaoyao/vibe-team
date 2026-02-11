@@ -23,6 +23,7 @@ class Settings(BaseModel):
     debug: bool = Field(default=True)
     host: str = Field(default="127.0.0.1")
     port: int = Field(default=8000)
+    project_root: Path | None = Field(default=None)
     database_url: str = Field(default="sqlite:///./beebeebrain.db")
     testing: bool = Field(default=False)
     claude_settings_path: str | None = Field(default=None)
@@ -129,9 +130,45 @@ def load_settings() -> Settings:
     default_testing = app_env == "test"
     default_db_auto_init = app_env == "development"
     default_db_auto_seed = app_env == "development"
-    default_db = (
-        "sqlite:///./beebeebrain_test.db" if app_env == "test" else "sqlite:///./beebeebrain.db"
-    )
+    
+    # 处理 PROJECT_ROOT
+    project_root_str = os.getenv("PROJECT_ROOT")
+    project_root: Path | None = None
+    
+    if project_root_str:
+        project_root = Path(project_root_str)
+        if not project_root.exists():
+            raise ValueError(f"PROJECT_ROOT directory does not exist: {project_root}")
+        if not project_root.is_dir():
+            raise ValueError(f"PROJECT_ROOT is not a directory: {project_root}")
+    elif not default_testing:
+        # 非测试模式下必须设置 PROJECT_ROOT
+        raise ValueError(
+            "PROJECT_ROOT environment variable is required. "
+            "Please set it to your project directory path."
+        )
+    
+    # 确定数据库 URL
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        # 如果显式设置了 DATABASE_URL，优先使用它（但打印警告）
+        if project_root:
+            import warnings
+            warnings.warn(
+                "Both DATABASE_URL and PROJECT_ROOT are set. "
+                f"Using DATABASE_URL: {database_url}",
+                UserWarning,
+                stacklevel=2,
+            )
+    elif project_root:
+        # 从 PROJECT_ROOT 推导数据库路径
+        db_path = project_root / ".beebeebrain" / "beebeebrain.db"
+        database_url = f"sqlite:///{db_path}"
+    else:
+        # 测试模式下的默认路径
+        database_url = (
+            "sqlite:///./beebeebrain_test.db" if app_env == "test" else "sqlite:///./beebeebrain.db"
+        )
 
     return Settings(
         app_name=os.getenv("APP_NAME", "BeeBeeBrain Backend"),
@@ -139,7 +176,8 @@ def load_settings() -> Settings:
         debug=_to_bool(os.getenv("DEBUG"), default=default_debug),
         host=os.getenv("HOST", "127.0.0.1"),
         port=int(os.getenv("PORT", "8000")),
-        database_url=os.getenv("DATABASE_URL", default_db),
+        project_root=project_root,
+        database_url=database_url,
         testing=_to_bool(os.getenv("TESTING"), default=default_testing),
         claude_settings_path=os.getenv("CLAUDE_SETTINGS_PATH"),
         claude_cli_path=os.getenv("CLAUDE_CLI_PATH"),
