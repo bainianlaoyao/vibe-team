@@ -83,14 +83,6 @@ export interface ConversationSummary {
   updatedAt: string;
 }
 
-export interface ConversationMessage {
-  id: number;
-  role: 'user' | 'assistant' | 'system';
-  messageType: string;
-  content: string;
-  createdAt: string;
-}
-
 export interface UsageBudget {
   month: string;
   budgetUsd: number;

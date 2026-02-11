@@ -1,12 +1,18 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue';
+import { computed, ref, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { useChatStore } from '@/stores/chat';
 import MessageItem from '@/components/chat/MessageItem.vue';
 import ChatInput from '@/components/chat/ChatInput.vue';
-import ToolConfirmation from '@/components/chat/ToolConfirmation.vue';
 
 const store = useChatStore();
 const messagesEndRef = ref<HTMLElement | null>(null);
+const connectionLabel = computed(() =>
+  store.socketState === 'connected' ? 'Connected' : `WS ${store.socketState}`,
+);
+const statusLabel = computed(() => `Runtime: ${store.runtimeState}`);
+const currentConversationLabel = computed(() =>
+  store.currentConversationId === null ? 'No conversation' : `Conversation #${store.currentConversationId}`,
+);
 
 function scrollToBottom() {
   nextTick(() => {
@@ -23,21 +29,30 @@ watch(() => store.messages.length, () => {
 watch(() => store.isLoading, () => {
   scrollToBottom();
 });
+watch(
+  () => store.messages,
+  () => {
+    scrollToBottom();
+  },
+  { deep: true },
+);
 
 async function handleSubmit(content: string) {
   store.sendMessage(content);
   scrollToBottom();
 }
 
+function handleInputSubmit(payload: { questionId: string; answer: string }) {
+  store.submitInputResponse(payload.questionId, payload.answer);
+}
+
 onMounted(() => {
-  // Connect to conversation 1 by default for this view
-  // In a full app, this would come from route params
-  store.connect('1');
+  void store.bootstrapConversation();
   scrollToBottom();
 });
 
 onUnmounted(() => {
-  // Optional: close connection or handled by store/new connect
+  store.resetConnection();
 });
 </script>
 
@@ -45,26 +60,44 @@ onUnmounted(() => {
   <div class="flex flex-col h-full bg-bg-secondary text-text-primary font-sans">
     <!-- Header -->
     <header class="flex-none px-6 py-4 border-b border-border bg-bg-primary/50 backdrop-blur">
-      <div class="flex items-center gap-3">
-        <div class="w-3 h-3 rounded-full bg-red-500"></div>
-        <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
-        <div class="w-3 h-3 rounded-full bg-green-500"></div>
-        <span class="ml-4 font-mono text-sm font-bold text-text-secondary">Claude Code Clone</span>
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div class="flex items-center gap-3">
+          <div class="h-2.5 w-2.5 rounded-full bg-emerald-500"></div>
+          <span class="font-mono text-sm font-bold text-text-secondary">Conversation v2</span>
+          <span class="text-xs text-text-tertiary">{{ currentConversationLabel }}</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-text-tertiary">{{ connectionLabel }}</span>
+          <span class="text-xs text-text-tertiary">{{ statusLabel }}</span>
+          <button
+            type="button"
+            class="rounded-md border border-border px-2 py-1 text-xs text-text-secondary disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="!store.canInterrupt"
+            @click="store.interrupt()"
+          >
+            Stop
+          </button>
+        </div>
       </div>
     </header>
 
     <!-- Messages Area -->
     <main class="flex-1 overflow-y-auto p-4 md:p-8 scrollbar-thin scrollbar-thumb-border">
       <div class="max-w-4xl mx-auto pb-4">
+        <div v-if="store.error" class="mb-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {{ store.error }}
+        </div>
+
         <div v-if="store.messages.length === 0" class="text-center py-20 text-text-tertiary">
-          <p class="text-2xl font-bold mb-2 text-text-primary">Welcome to Claude Code UI</p>
-          <p>Start a conversation to see the tool integration in action.</p>
+          <p class="text-2xl font-bold mb-2 text-text-primary">Workspace Chat</p>
+          <p>Send a message to start streaming.</p>
         </div>
 
         <MessageItem
           v-for="msg in store.messages"
           :key="msg.id"
           :message="msg"
+          @submit-input="handleInputSubmit"
         />
 
         <div ref="messagesEndRef" class="h-1"></div>
@@ -75,8 +108,5 @@ onUnmounted(() => {
     <footer class="flex-none p-4 md:p-6 bg-bg-secondary border-t border-border/50">
       <ChatInput :is-loading="store.isLoading" @submit="handleSubmit" />
     </footer>
-
-    <!-- Overlays -->
-    <ToolConfirmation />
   </div>
 </template>

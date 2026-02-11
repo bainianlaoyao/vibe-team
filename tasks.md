@@ -17,7 +17,7 @@
 ## 当前状态（2026-02-11）
 
 1. **已完成阶段**：Phase 1-9 全部完成并验收通过。
-2. **当前阶段**：Phase 10 进行中（3/6）- 聊天系统对齐 Claude Code 交互体验。
+2. **当前阶段**：Phase 10 进行中（4/6）- 聊天系统对齐 Claude Code 交互体验。
 3. **关键风险**：现有 Chat 前端仅渲染 `assistant.chunk`/`assistant.complete`，工具透明、输入请求、系统事件和问题回填未形成完整闭环。
 
 ---
@@ -113,13 +113,13 @@
 - 依赖：P10-A step 2, P10-B step 2
 - 优先级：高
 - 串行任务：
-1. [ ] 改造 `conversations` store，完整消费 `assistant.tool_call/tool_result/thinking/request_input/message.replay`。
-2. [ ] Chat 消息区按类型渲染：文本流、思考块、工具调用卡、工具结果卡、提问卡、系统事件卡。
-3. [ ] 增加 `ask userquestion` 交互卡：展示问题、候选项（若有）、回答输入与提交状态。
-4. [ ] 回答提交后显示 pending 与 ack，按 `question_id` 回填对应提问卡。
-5. [ ] 打断按钮改为真实状态驱动（streaming 才可打断；中断后可继续提问）。
-6. [ ] 重连策略升级：携带 `last_message_id`，前端对 replay 幂等去重并修复流式拼接。
-7. [ ] 更新浏览器端可访问性与移动端布局，保证桌面/移动均可读可操作。
+1. [x] 改造 `chat` store，完整消费 `assistant.tool_call/tool_result/thinking/request_input/message.replay`。
+2. [x] Chat 消息区按类型渲染：文本流、思考块、工具调用卡、工具结果卡、提问卡、系统事件卡。
+3. [x] 增加 `ask userquestion` 交互卡：展示问题、候选项（若有）、回答输入与提交状态。
+4. [x] 回答提交后显示 pending 与 ack，按 `question_id` 回填对应提问卡。
+5. [x] 打断按钮改为真实状态驱动（streaming 才可打断；中断后可继续提问）。
+6. [x] 重连策略升级：携带 `last_sequence`，前端对 replay 幂等去重并修复流式拼接。
+7. [x] 更新浏览器端可访问性与移动端布局，保证桌面/移动均可读可操作。
 
 ### 并行任务 P10-E：回归测试、E2E 与压力验证
 

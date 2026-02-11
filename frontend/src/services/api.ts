@@ -1,5 +1,4 @@
 import type {
-  ConversationMessage,
   ConversationSummary,
   FileNode,
   PermissionLevel,
@@ -109,16 +108,6 @@ interface BackendConversationList {
     agent_id: number;
     task_id: number | null;
     updated_at: string;
-  }>;
-}
-
-interface BackendMessageList {
-  items: Array<{
-    id: number;
-    role: 'user' | 'assistant' | 'system';
-    message_type: string;
-    content: string;
-    created_at: string;
   }>;
 }
 
@@ -355,42 +344,6 @@ export const api = {
       agentId: item.agent_id,
       taskId: item.task_id,
       updatedAt: item.updated_at,
-    }));
-  },
-
-  listMessages(conversationId: number): Promise<ConversationMessage[]> {
-    return request<BackendMessageList>(
-      `/conversations/${conversationId}/messages${buildQuery({ page_size: 100 })}`,
-    ).then(payload =>
-      payload.items.map(item => ({
-        id: item.id,
-        role: item.role,
-        messageType: item.message_type,
-        content: item.content,
-        createdAt: item.created_at,
-      })),
-    );
-  },
-
-  createMessage(
-    conversationId: number,
-    payload: { role: 'user' | 'assistant' | 'system'; content: string; message_type?: string },
-  ): Promise<ConversationMessage> {
-    return request<{
-      id: number;
-      role: 'user' | 'assistant' | 'system';
-      message_type: string;
-      content: string;
-      created_at: string;
-    }>(`/conversations/${conversationId}/messages`, {
-      method: 'POST',
-      body: payload,
-    }).then(item => ({
-      id: item.id,
-      role: item.role,
-      messageType: item.message_type,
-      content: item.content,
-      createdAt: item.created_at,
     }));
   },
 

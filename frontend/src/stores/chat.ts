@@ -1,297 +1,858 @@
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
-import type { ChatMessage, ToolInvocation, MessagePart, Role } from '@/types/chat';
+import { computed, ref } from 'vue';
+import { ApiRequestError, api } from '@/services/api';
+import type {
+  ChatMessage,
+  ChatSocketState,
+  ConversationRuntimeState,
+  InputRequestCard,
+  MessagePart,
+  Role,
+  ToolInvocation,
+  ToolState,
+} from '@/types/chat';
+
+interface SocketEnvelope {
+  type: string;
+  conversation_id: number;
+  turn_id: number | null;
+  sequence: number;
+  timestamp: string;
+  trace_id: string;
+  payload: Record<string, unknown>;
+}
+
+type OutboundMessage =
+  | { type: 'user.message'; payload: { content: string; metadata: Record<string, unknown> } }
+  | { type: 'user.input_response'; payload: { question_id: string; answer: string; resume_task: boolean } }
+  | { type: 'user.interrupt'; payload: Record<string, never> }
+  | { type: 'session.heartbeat'; payload: Record<string, never> };
+
+const HEARTBEAT_MS = 30_000;
+const RECONNECT_BASE_MS = 1_000;
+const RECONNECT_MAX_MS = 12_000;
+
+function parseRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+function parseString(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function parseStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string');
+}
+
+function parseNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function normalizeRole(value: unknown): Role {
+  if (value === 'assistant' || value === 'system' || value === 'user') return value;
+  return 'assistant';
+}
+
+function normalizeRuntimeState(value: unknown): ConversationRuntimeState {
+  if (
+    value === 'active' ||
+    value === 'streaming' ||
+    value === 'waiting_input' ||
+    value === 'interrupted' ||
+    value === 'error'
+  ) {
+    return value;
+  }
+  return 'active';
+}
+
+function parseTimestampMs(iso: string): number {
+  const parsed = Date.parse(iso);
+  return Number.isNaN(parsed) ? Date.now() : parsed;
+}
+
+function buildWsBaseUrl(): string {
+  const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api/v1';
+  const url = new URL(apiBase);
+  const scheme = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${scheme}//${url.host}`;
+}
 
 export const useChatStore = defineStore('chat', () => {
   const messages = ref<ChatMessage[]>([]);
   const isLoading = ref(false);
-  const pendingToolCallId = ref<string | null>(null);
-  const socket = ref<WebSocket | null>(null);
-  const isConnected = ref(false);
-  const currentConversationId = ref<string | null>(null);
+  const error = ref<string | null>(null);
+  const socketState = ref<ChatSocketState>('idle');
+  const runtimeState = ref<ConversationRuntimeState>('active');
+  const currentConversationId = ref<number | null>(null);
+  const lastMessageSequence = ref(0);
 
-  // Getters
-  const pendingTool = computed(() => {
-    if (!pendingToolCallId.value) return null;
-    for (const msg of messages.value) {
-      for (const part of msg.parts) {
-        if (part.type === 'tool-invocation' &&
-            part.toolInvocation?.toolCallId === pendingToolCallId.value) {
+  const canInterrupt = computed(() => runtimeState.value === 'streaming');
+
+  const pendingInputRequests = computed(() =>
+    messages.value
+      .flatMap(message => message.parts)
+      .filter((part): part is Extract<MessagePart, { type: 'request-input' }> => part.type === 'request-input')
+      .map(part => part.inputRequest)
+      .filter(card => card.status === 'awaiting' || card.status === 'pending'),
+  );
+
+  let socket: WebSocket | null = null;
+  let reconnectTimer: number | null = null;
+  let heartbeatTimer: number | null = null;
+  let reconnectAttempt = 0;
+  let clientId = '';
+  let manualClose = false;
+  const outboundQueue: OutboundMessage[] = [];
+  const seenMessageSequences = new Set<number>();
+  const pendingUserOptimisticQueue: string[] = [];
+  const pendingInputOptimisticByQuestion = new Map<string, string>();
+
+  function sortMessagesByTime(): void {
+    messages.value.sort((a, b) => a.timestamp - b.timestamp);
+  }
+
+  function newTempId(prefix: string): string {
+    return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  function ensureMessageByTurn(role: Role, turnId: number, timestampMs: number): ChatMessage {
+    const key = `${role}-turn-${turnId}`;
+    let message = messages.value.find(item => item.id === key);
+    if (!message) {
+      message = {
+        id: key,
+        role,
+        parts: [],
+        timestamp: timestampMs,
+        turnId,
+      };
+      messages.value.push(message);
+      sortMessagesByTime();
+    }
+    return message;
+  }
+
+  function addStandaloneMessage(role: Role, content: string, timestampMs: number): ChatMessage {
+    const message: ChatMessage = {
+      id: newTempId(`${role}-msg`),
+      role,
+      parts: [{ type: 'text', content }],
+      timestamp: timestampMs,
+      turnId: null,
+    };
+    messages.value.push(message);
+    sortMessagesByTime();
+    return message;
+  }
+
+  function markSequenceSeen(sequence: number | null): boolean {
+    if (sequence === null || sequence <= 0) return false;
+    if (seenMessageSequences.has(sequence)) return true;
+    seenMessageSequences.add(sequence);
+    if (sequence > lastMessageSequence.value) {
+      lastMessageSequence.value = sequence;
+    }
+    return false;
+  }
+
+  function parseMessageSequence(payload: Record<string, unknown>): number | null {
+    return parseNumber(payload.message_sequence);
+  }
+
+  function findToolInvocation(toolCallId: string): ToolInvocation | null {
+    for (const message of messages.value) {
+      for (const part of message.parts) {
+        if (part.type === 'tool-invocation' && part.toolInvocation.toolCallId === toolCallId) {
           return part.toolInvocation;
         }
       }
     }
     return null;
-  });
-
-  // Helper to find or create a message by turn_id (which we use as message ID)
-  function getOrCreateMessage(turnId: string, role: Role, timestamp?: number): ChatMessage {
-    let msg = messages.value.find(m => m.id === turnId);
-    if (!msg) {
-      msg = {
-        id: turnId,
-        role,
-        parts: [],
-        timestamp: timestamp || Date.now()
-      };
-      messages.value.push(msg);
-    }
-    return msg;
   }
 
-  // Actions
-  function addMessage(message: ChatMessage) {
-    messages.value.push(message);
+  function updateToolInvocation(toolCallId: string, patch: Partial<ToolInvocation>): void {
+    const target = findToolInvocation(toolCallId);
+    if (!target) return;
+    Object.assign(target, patch);
   }
 
-  function updateToolState(toolCallId: string, updates: Partial<ToolInvocation>) {
-    for (const msg of messages.value) {
-      for (const part of msg.parts) {
-        if (part.type === 'tool-invocation' && part.toolInvocation?.toolCallId === toolCallId) {
-          Object.assign(part.toolInvocation, updates);
-          return;
+  function findInputCard(questionId: string): InputRequestCard | null {
+    for (const message of messages.value) {
+      for (const part of message.parts) {
+        if (part.type === 'request-input' && part.inputRequest.questionId === questionId) {
+          return part.inputRequest;
         }
       }
     }
+    return null;
   }
 
-  function requestToolApproval(toolCallId: string) {
-    pendingToolCallId.value = toolCallId;
-    updateToolState(toolCallId, { state: 'requires_action' });
-  }
-
-  function approveTool(toolCallId: string) {
-    if (!socket.value || !isConnected.value) return;
-
-    pendingToolCallId.value = null;
-    updateToolState(toolCallId, { state: 'running' });
-
-    // For 'request_input' tools, we send the response back
-    const msg = {
-      type: 'user.input_response',
-      payload: {
-        question_id: toolCallId,
-        answer: 'approved', // Or the actual input if this was a form
-        resume_task: true
+  function upsertInputCard(
+    message: ChatMessage,
+    payload: {
+      questionId: string;
+      question: string;
+      options: string[];
+      required: boolean;
+      metadata: Record<string, unknown>;
+      inboxItemId: number | null;
+      deadlineAt: string | null;
+    },
+  ): void {
+    const existing = findInputCard(payload.questionId);
+    if (existing) {
+      existing.question = payload.question;
+      existing.options = payload.options;
+      existing.required = payload.required;
+      existing.metadata = payload.metadata;
+      existing.inboxItemId = payload.inboxItemId;
+      existing.deadlineAt = payload.deadlineAt;
+      if (existing.status === 'error') {
+        existing.status = 'awaiting';
+        existing.errorMessage = null;
       }
-    };
-    socket.value.send(JSON.stringify(msg));
+      return;
+    }
+
+    message.parts.push({
+      type: 'request-input',
+      inputRequest: {
+        questionId: payload.questionId,
+        question: payload.question,
+        options: payload.options,
+        required: payload.required,
+        metadata: payload.metadata,
+        inboxItemId: payload.inboxItemId,
+        deadlineAt: payload.deadlineAt,
+        answer: '',
+        status: 'awaiting',
+        errorMessage: null,
+      },
+    });
   }
 
-  function denyTool(toolCallId: string) {
-    if (!socket.value || !isConnected.value) return;
-
-    pendingToolCallId.value = null;
-    updateToolState(toolCallId, { state: 'failed', isError: true, result: 'User denied execution' });
-
-    // Send cancel/deny response
-    // If it was a request_input, we might want to send a specific denial or just interrupt
-    // For this MVP, let's treat it as an interrupt or a specific denial response
-    const msg = {
-      type: 'user.interrupt',
-      payload: {}
-    };
-    socket.value.send(JSON.stringify(msg));
+  function updateQuestionStatus(
+    questionId: string,
+    patch: Partial<InputRequestCard>,
+  ): void {
+    const card = findInputCard(questionId);
+    if (!card) return;
+    Object.assign(card, patch);
   }
 
-  function connect(conversationId: string) {
-    if (socket.value) {
-      socket.value.close();
+  function markLatestPendingQuestionAsError(message: string): void {
+    const pendingCards = pendingInputRequests.value;
+    const latest = pendingCards[pendingCards.length - 1];
+    if (!latest) return;
+    latest.status = 'error';
+    latest.errorMessage = message;
+  }
+
+  function setRuntimeState(next: ConversationRuntimeState): void {
+    runtimeState.value = next;
+    isLoading.value = next === 'streaming';
+  }
+
+  function clearSocketTimers(): void {
+    if (heartbeatTimer !== null) {
+      window.clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+    if (reconnectTimer !== null) {
+      window.clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+  }
+
+  function closeSocket(): void {
+    clearSocketTimers();
+    if (socket) {
+      socket.close(1000, 'client close');
+      socket = null;
+    }
+  }
+
+  function closeSocketSilently(): void {
+    clearSocketTimers();
+    if (!socket) return;
+    socket.onopen = null;
+    socket.onmessage = null;
+    socket.onerror = null;
+    socket.onclose = null;
+    socket.close(1000, 'replace socket');
+    socket = null;
+  }
+
+  function buildSocketUrl(conversationId: number): string {
+    const params = new URLSearchParams();
+    params.set('protocol', 'v2');
+    params.set('client_id', clientId);
+    params.set('last_sequence', String(lastMessageSequence.value));
+    return `${buildWsBaseUrl()}/ws/conversations/${conversationId}?${params.toString()}`;
+  }
+
+  function enqueueOrSend(message: OutboundMessage): void {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify(message));
+      return;
+    }
+    outboundQueue.push(message);
+  }
+
+  function flushOutboundQueue(): void {
+    while (outboundQueue.length > 0 && socket && socket.readyState === WebSocket.OPEN) {
+      const next = outboundQueue.shift();
+      if (!next) break;
+      socket.send(JSON.stringify(next));
+    }
+  }
+
+  function startHeartbeat(): void {
+    heartbeatTimer = window.setInterval(() => {
+      enqueueOrSend({ type: 'session.heartbeat', payload: {} });
+    }, HEARTBEAT_MS);
+  }
+
+  function scheduleReconnect(): void {
+    if (manualClose || currentConversationId.value === null) return;
+    socketState.value = 'reconnecting';
+    const delay = Math.min(RECONNECT_BASE_MS * 2 ** reconnectAttempt, RECONNECT_MAX_MS);
+    reconnectAttempt += 1;
+    reconnectTimer = window.setTimeout(() => {
+      connect(currentConversationId.value as number, false);
+    }, delay);
+  }
+
+  function bindSocket(socketInstance: WebSocket): void {
+    socketInstance.onopen = () => {
+      socketState.value = 'connected';
+      reconnectAttempt = 0;
+      flushOutboundQueue();
+      startHeartbeat();
+    };
+
+    socketInstance.onmessage = event => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(String(event.data));
+      } catch {
+        error.value = 'Invalid websocket payload.';
+        return;
+      }
+      handleIncomingEnvelope(parsed);
+    };
+
+    socketInstance.onerror = () => {
+      socketState.value = 'reconnecting';
+    };
+
+    socketInstance.onclose = () => {
+      clearSocketTimers();
+      socket = null;
+      if (manualClose) {
+        socketState.value = 'closed';
+        return;
+      }
+      scheduleReconnect();
+    };
+  }
+
+  function connect(conversationId: number, resetHistory: boolean): void {
+    manualClose = false;
+    clearSocketTimers();
+    closeSocketSilently();
+
+    if (!clientId || currentConversationId.value !== conversationId) {
+      clientId = `web-${conversationId}-${Date.now().toString(36)}`;
+    }
+    if (resetHistory) {
+      messages.value = [];
+      seenMessageSequences.clear();
+      pendingUserOptimisticQueue.length = 0;
+      pendingInputOptimisticByQuestion.clear();
+      lastMessageSequence.value = 0;
     }
 
     currentConversationId.value = conversationId;
-    messages.value = [];
+    socketState.value = 'connecting';
+    const ws = new WebSocket(buildSocketUrl(conversationId));
+    socket = ws;
+    bindSocket(ws);
+  }
 
-    // Use relative path for WS to work with proxy or same origin
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    // Assuming backend is proxy pass or same host in dev
-    // If separate, might need env var. For now assuming proxy/same origin setup from prompt context implies standard web app structure
-    const wsUrl = `${protocol}//${host}/api/ws/conversations/${conversationId}?protocol=v2`;
+  function parseEnvelope(raw: unknown): SocketEnvelope | null {
+    const data = parseRecord(raw);
+    const type = parseString(data.type);
+    const conversationId = parseNumber(data.conversation_id);
+    const sequence = parseNumber(data.sequence);
+    const timestamp = parseString(data.timestamp);
+    const traceId = parseString(data.trace_id);
+    const payload = parseRecord(data.payload);
 
-    console.log(`Connecting to ${wsUrl}`);
-    socket.value = new WebSocket(wsUrl);
+    if (!type || conversationId === null || sequence === null || !timestamp || !traceId) {
+      return null;
+    }
 
-    socket.value.onopen = () => {
-      isConnected.value = true;
-      console.log('WS Connected');
-    };
-
-    socket.value.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        handleIncomingMessage(data);
-      } catch (e) {
-        console.error('Failed to parse WS message', e);
-      }
-    };
-
-    socket.value.onclose = () => {
-      isConnected.value = false;
-      console.log('WS Disconnected');
-    };
-
-    socket.value.onerror = (err) => {
-      console.error('WS Error', err);
+    return {
+      type,
+      conversation_id: conversationId,
+      turn_id: parseNumber(data.turn_id),
+      sequence,
+      timestamp,
+      trace_id: traceId,
+      payload,
     };
   }
 
-  function sendMessage(content: string) {
-    if (!socket.value || !isConnected.value) return;
+  function handleIncomingEnvelope(raw: unknown): void {
+    const envelope = parseEnvelope(raw);
+    if (!envelope) {
+      error.value = 'Invalid websocket envelope.';
+      return;
+    }
 
-    // Optimistically add message
-    const tempId = 'temp-' + Date.now();
-    addMessage({
-      id: tempId,
-      role: 'user',
-      parts: [{ type: 'text', content }],
-      timestamp: Date.now()
-    });
+    const messageSequence = parseMessageSequence(envelope.payload);
+    if (markSequenceSeen(messageSequence)) {
+      return;
+    }
 
-    const msg = {
-      type: 'user.message',
-      payload: {
-        content,
-        metadata: {}
+    switch (envelope.type) {
+      case 'session.connected':
+      case 'session.resumed': {
+        setRuntimeState(normalizeRuntimeState(envelope.payload.state));
+        error.value = null;
+        return;
       }
-    };
-    socket.value.send(JSON.stringify(msg));
+      case 'session.state': {
+        setRuntimeState(normalizeRuntimeState(envelope.payload.state));
+        return;
+      }
+      case 'session.heartbeat_ack': {
+        return;
+      }
+      case 'user.message.ack': {
+        handleUserMessageAck(envelope);
+        return;
+      }
+      case 'user.input_response.ack': {
+        handleInputResponseAck(envelope);
+        return;
+      }
+      case 'user.interrupt.ack': {
+        isLoading.value = false;
+        return;
+      }
+      case 'assistant.chunk': {
+        handleAssistantChunk(envelope);
+        return;
+      }
+      case 'assistant.thinking': {
+        handleAssistantThinking(envelope);
+        return;
+      }
+      case 'assistant.tool_call': {
+        handleToolCall(envelope);
+        return;
+      }
+      case 'assistant.tool_result': {
+        handleToolResult(envelope);
+        return;
+      }
+      case 'assistant.request_input': {
+        handleRequestInput(envelope);
+        return;
+      }
+      case 'assistant.complete': {
+        isLoading.value = false;
+        return;
+      }
+      case 'session.system_event': {
+        handleSystemEvent(envelope);
+        return;
+      }
+      case 'message.replay': {
+        handleReplayMessage(envelope);
+        return;
+      }
+      case 'session.error': {
+        const code = parseString(envelope.payload.code);
+        const message = parseString(envelope.payload.message) || 'Conversation error';
+        error.value = code ? `${code}: ${message}` : message;
+        isLoading.value = false;
+        markLatestPendingQuestionAsError(message);
+        return;
+      }
+      default:
+        return;
+    }
+  }
+
+  function handleUserMessageAck(envelope: SocketEnvelope): void {
+    const turnId = envelope.turn_id;
+    const optimisticId = pendingUserOptimisticQueue.shift();
+    if (!optimisticId) return;
+    const optimistic = messages.value.find(item => item.id === optimisticId);
+    if (!optimistic) return;
+    if (turnId !== null) {
+      optimistic.id = `user-turn-${turnId}`;
+      optimistic.turnId = turnId;
+    }
+  }
+
+  function handleInputResponseAck(envelope: SocketEnvelope): void {
+    const questionId = parseString(envelope.payload.question_id);
+    if (questionId) {
+      updateQuestionStatus(questionId, { status: 'acknowledged', errorMessage: null });
+      updateToolInvocation(questionId, { state: 'completed' });
+      const optimisticId = pendingInputOptimisticByQuestion.get(questionId);
+      if (optimisticId) {
+        const optimistic = messages.value.find(item => item.id === optimisticId);
+        if (optimistic && envelope.turn_id !== null) {
+          optimistic.id = `user-turn-${envelope.turn_id}`;
+          optimistic.turnId = envelope.turn_id;
+        }
+        pendingInputOptimisticByQuestion.delete(questionId);
+      }
+    }
+  }
+
+  function handleAssistantChunk(envelope: SocketEnvelope): void {
+    if (envelope.turn_id === null) return;
+    const content = parseString(envelope.payload.content);
+    if (!content) return;
+
+    const message = ensureMessageByTurn('assistant', envelope.turn_id, parseTimestampMs(envelope.timestamp));
+    const lastPart = message.parts[message.parts.length - 1];
+    if (lastPart && lastPart.type === 'text') {
+      lastPart.content += content;
+    } else {
+      message.parts.push({ type: 'text', content });
+    }
     isLoading.value = true;
   }
 
-  function handleIncomingMessage(msg: any) {
-    const { type, payload, turn_id } = msg;
-    const turnIdStr = turn_id?.toString();
+  function handleAssistantThinking(envelope: SocketEnvelope): void {
+    if (envelope.turn_id === null) return;
+    const content = parseString(envelope.payload.content);
+    if (!content) return;
+    const signature = parseString(envelope.payload.signature);
+    const message = ensureMessageByTurn('assistant', envelope.turn_id, parseTimestampMs(envelope.timestamp));
+    const lastPart = message.parts[message.parts.length - 1];
+    if (lastPart && lastPart.type === 'thinking') {
+      lastPart.content += content;
+    } else {
+      message.parts.push({ type: 'thinking', content, signature: signature || undefined });
+    }
+    isLoading.value = true;
+  }
 
-    switch (type) {
-      case 'session.connected':
-      case 'session.resumed':
-        isLoading.value = false;
-        break;
+  function resolveToolStateFromResult(isError: boolean): ToolState {
+    return isError ? 'failed' : 'completed';
+  }
 
-      case 'message.replay':
-        // Reconstruct history
-        // Payload: { message_id, role, message_type, content, metadata_json, created_at }
-        handleReplayMessage(payload, turnIdStr);
-        break;
+  function handleToolCall(envelope: SocketEnvelope): void {
+    if (envelope.turn_id === null) return;
+    const toolCallId = parseString(envelope.payload.id);
+    const name = parseString(envelope.payload.name);
+    if (!toolCallId || !name) return;
+    const args = parseRecord(envelope.payload.arguments);
 
-      case 'assistant.chunk':
-        if (turnIdStr) {
-          const message = getOrCreateMessage(turnIdStr, 'assistant');
-          // Append to last text part or create new
-          const lastPart = message.parts[message.parts.length - 1];
-          if (lastPart && lastPart.type === 'text') {
-            lastPart.content += payload.content;
-          } else {
-            message.parts.push({ type: 'text', content: payload.content });
-          }
-          isLoading.value = true;
-        }
-        break;
+    const message = ensureMessageByTurn('assistant', envelope.turn_id, parseTimestampMs(envelope.timestamp));
+    if (findToolInvocation(toolCallId)) {
+      updateToolInvocation(toolCallId, { toolName: name, args, state: 'running' });
+      return;
+    }
 
-      case 'assistant.thinking':
-        if (turnIdStr) {
-          const message = getOrCreateMessage(turnIdStr, 'assistant');
-          const lastPart = message.parts[message.parts.length - 1];
-          if (lastPart && lastPart.type === 'thinking') {
-            lastPart.content += payload.content;
-          } else {
-            message.parts.push({ type: 'thinking', content: payload.content });
-          }
-          isLoading.value = true;
-        }
-        break;
+    message.parts.push({
+      type: 'tool-invocation',
+      toolInvocation: {
+        toolCallId,
+        toolName: name,
+        args,
+        state: 'running',
+      },
+    });
+    isLoading.value = true;
+  }
 
-      case 'assistant.tool_call':
-        if (turnIdStr) {
-          const message = getOrCreateMessage(turnIdStr, 'assistant');
-          const toolInvocation: ToolInvocation = {
-            toolCallId: payload.id,
-            toolName: payload.name,
-            args: payload.arguments,
-            state: 'running'
-          };
-          message.parts.push({ type: 'tool-invocation', toolInvocation });
-          isLoading.value = true;
-        }
-        break;
+  function handleToolResult(envelope: SocketEnvelope): void {
+    const toolId = parseString(envelope.payload.tool_id);
+    if (!toolId) return;
+    const isError = Boolean(envelope.payload.is_error);
+    const result = parseString(envelope.payload.result);
+    updateToolInvocation(toolId, {
+      state: resolveToolStateFromResult(isError),
+      result,
+      isError,
+    });
+  }
 
-      case 'assistant.request_input':
-        // This usually comes with a tool call block, or standalone
-        // In the protocol, it's a specific message type.
-        // We handle it by finding the tool call or creating a placeholder
-        // For simplicity, we assume the tool_call event happened or we treat this as the trigger
-        // The protocol sends 'assistant.tool_call' first with name='request_input' usually.
-        // Then 'assistant.request_input' provides details.
-        if (payload.question_id) {
-           requestToolApproval(payload.question_id);
-           isLoading.value = false;
-        }
-        break;
+  function handleRequestInput(envelope: SocketEnvelope): void {
+    if (envelope.turn_id === null) return;
+    const questionId = parseString(envelope.payload.question_id);
+    if (!questionId) return;
+    const question = parseString(envelope.payload.question);
+    const options = parseStringArray(envelope.payload.options);
+    const required = Boolean(envelope.payload.required);
+    const metadata = parseRecord(envelope.payload.metadata);
+    const inboxItemId = parseNumber(envelope.payload.inbox_item_id);
+    const deadlineAtRaw = parseString(envelope.payload.deadline_at);
+    const deadlineAt = deadlineAtRaw || null;
 
-      case 'assistant.tool_result':
-        updateToolState(payload.tool_id, {
-          state: payload.is_error ? 'failed' : 'completed',
-          result: payload.result,
-          isError: payload.is_error
+    const message = ensureMessageByTurn('assistant', envelope.turn_id, parseTimestampMs(envelope.timestamp));
+    upsertInputCard(message, {
+      questionId,
+      question,
+      options,
+      required,
+      metadata,
+      inboxItemId,
+      deadlineAt,
+    });
+    updateToolInvocation(questionId, { state: 'requires_action' });
+    isLoading.value = false;
+  }
+
+  function handleSystemEvent(envelope: SocketEnvelope): void {
+    const subtype = parseString(envelope.payload.subtype) || 'system_event';
+    const data = parseRecord(envelope.payload.data);
+    const turnId = envelope.turn_id ?? 0;
+    const message = ensureMessageByTurn('system', turnId, parseTimestampMs(envelope.timestamp));
+    message.parts.push({ type: 'system-event', subtype, data });
+  }
+
+  function handleReplayMessage(envelope: SocketEnvelope): void {
+    const role = normalizeRole(envelope.payload.role);
+    const messageType = parseString(envelope.payload.message_type);
+    const content = parseString(envelope.payload.content);
+    const metadata = parseRecord(envelope.payload.metadata_json);
+    const createdAt = parseString(envelope.payload.created_at) || envelope.timestamp;
+    const timestampMs = parseTimestampMs(createdAt);
+    const turnId = parseNumber(metadata.turn_id);
+
+    if (messageType === 'tool_result') {
+      const toolId = parseString(metadata.tool_id);
+      if (toolId) {
+        const isError = Boolean(metadata.is_error);
+        updateToolInvocation(toolId, {
+          state: resolveToolStateFromResult(isError),
+          result: content,
+          isError,
         });
-        break;
+      }
+      return;
+    }
 
-      case 'assistant.complete':
-        isLoading.value = false;
-        break;
+    if (messageType === 'tool_call') {
+      if (turnId === null) return;
+      const message = ensureMessageByTurn(role, turnId, timestampMs);
+      const toolId = parseString(metadata.tool_id);
+      if (!toolId) return;
+      if (findToolInvocation(toolId)) return;
+      message.parts.push({
+        type: 'tool-invocation',
+        toolInvocation: {
+          toolCallId: toolId,
+          toolName: content || parseString(metadata.name) || 'tool',
+          args: parseRecord(metadata.arguments),
+          state: 'completed',
+        },
+      });
+      return;
+    }
 
-      case 'session.error':
-        console.error('Session error:', payload);
-        isLoading.value = false;
-        break;
+    if (messageType === 'input_request') {
+      if (turnId === null) return;
+      const message = ensureMessageByTurn(role, turnId, timestampMs);
+      const questionId = parseString(metadata.question_id);
+      if (!questionId) return;
+      upsertInputCard(message, {
+        questionId,
+        question: content,
+        options: parseStringArray(metadata.options),
+        required: Boolean(metadata.required),
+        metadata: parseRecord(metadata.metadata),
+        inboxItemId: parseNumber(metadata.inbox_item_id),
+        deadlineAt: parseString(metadata.deadline_at) || null,
+      });
+      updateToolInvocation(questionId, { state: 'requires_action' });
+      return;
+    }
+
+    if (messageType === 'input_response') {
+      const questionId = parseString(metadata.question_id);
+      if (questionId) {
+        updateQuestionStatus(questionId, {
+          answer: content,
+          status: 'acknowledged',
+          errorMessage: null,
+        });
+      }
+    }
+
+    if (messageType === 'text' && metadata.thinking === true) {
+      if (turnId === null) {
+        addStandaloneMessage(role, content, timestampMs);
+        return;
+      }
+      const message = ensureMessageByTurn(role, turnId, timestampMs);
+      const lastPart = message.parts[message.parts.length - 1];
+      if (lastPart && lastPart.type === 'thinking') {
+        lastPart.content += content;
+      } else {
+        message.parts.push({
+          type: 'thinking',
+          content,
+          signature: parseString(metadata.signature) || undefined,
+        });
+      }
+      return;
+    }
+
+    if (messageType === 'text' && role === 'system' && metadata.system_data) {
+      const message = ensureMessageByTurn('system', turnId ?? 0, timestampMs);
+      message.parts.push({
+        type: 'system-event',
+        subtype: content || 'system_event',
+        data: parseRecord(metadata.system_data),
+      });
+      return;
+    }
+
+    if (messageType === 'interrupt') {
+      const message = ensureMessageByTurn('system', turnId ?? 0, timestampMs);
+      message.parts.push({ type: 'system-event', subtype: 'interrupt', data: {} });
+      return;
+    }
+
+    if (turnId === null) {
+      addStandaloneMessage(role, content, timestampMs);
+      return;
+    }
+
+    const message = ensureMessageByTurn(role, turnId, timestampMs);
+    const lastPart = message.parts[message.parts.length - 1];
+    if (lastPart && lastPart.type === 'text') {
+      lastPart.content += content;
+    } else {
+      message.parts.push({ type: 'text', content });
     }
   }
 
-  function handleReplayMessage(payload: any, turnId: string) {
-    if (!turnId) return;
-    const timestamp = new Date(payload.created_at).getTime();
-    const message = getOrCreateMessage(turnId, payload.role, timestamp);
+  async function bootstrapConversation(): Promise<void> {
+    error.value = null;
+    try {
+      const projectId = api.getProjectId();
+      const existing = await api.listConversations(projectId);
+      let conversationId = existing[0]?.id ?? null;
 
-    if (payload.message_type === 'text') {
-      if (payload.metadata_json?.thinking) {
-        message.parts.push({ type: 'thinking', content: payload.content });
-      } else {
-        message.parts.push({ type: 'text', content: payload.content });
-      }
-    } else if (payload.message_type === 'tool_call') {
-      const toolInvocation: ToolInvocation = {
-        toolCallId: payload.metadata_json?.tool_id || 'unknown',
-        toolName: payload.content,
-        args: payload.metadata_json?.arguments || {},
-        state: 'completed' // Default to completed for history, unless we have state tracking
-      };
-      message.parts.push({ type: 'tool-invocation', toolInvocation });
-    } else if (payload.message_type === 'tool_result') {
-      // Update existing tool call in this message/turn if possible
-      // Or just ignore if we assume tool_call was added and we just need state
-      const toolId = payload.metadata_json?.tool_id;
-      if (toolId) {
-        updateToolState(toolId, {
-          state: payload.metadata_json?.is_error ? 'failed' : 'completed',
-          result: payload.content,
-          isError: payload.metadata_json?.is_error
+      if (conversationId === null) {
+        const agents = await api.listAgents(projectId);
+        const firstAgent = agents[0];
+        if (!firstAgent) {
+          throw new Error('No available agent to start conversation.');
+        }
+        const created = await api.createConversation({
+          project_id: projectId,
+          agent_id: firstAgent.id,
+          title: `Chat ${new Date().toLocaleTimeString()}`,
         });
+        conversationId = created.id;
       }
+
+      connect(conversationId, true);
+    } catch (cause) {
+      const apiError = cause instanceof ApiRequestError ? cause : null;
+      error.value = apiError
+        ? `${apiError.code}: ${apiError.message}`
+        : 'Failed to bootstrap conversation.';
     }
+  }
+
+  function sendMessage(content: string): void {
+    const trimmed = content.trim();
+    if (!trimmed) return;
+    error.value = null;
+    const optimistic = addStandaloneMessage('user', trimmed, Date.now());
+    pendingUserOptimisticQueue.push(optimistic.id);
+    enqueueOrSend({
+      type: 'user.message',
+      payload: {
+        content: trimmed,
+        metadata: {},
+      },
+    });
+    isLoading.value = true;
+  }
+
+  function submitInputResponse(questionId: string, answer: string): void {
+    const card = findInputCard(questionId);
+    if (!card) return;
+    const trimmedAnswer = answer.trim();
+    if (card.required && !trimmedAnswer) {
+      card.status = 'error';
+      card.errorMessage = 'Answer is required.';
+      return;
+    }
+
+    card.answer = trimmedAnswer;
+    card.status = 'pending';
+    card.errorMessage = null;
+
+    const optimistic = addStandaloneMessage('user', trimmedAnswer, Date.now());
+    pendingInputOptimisticByQuestion.set(questionId, optimistic.id);
+
+    enqueueOrSend({
+      type: 'user.input_response',
+      payload: {
+        question_id: questionId,
+        answer: trimmedAnswer,
+        resume_task: true,
+      },
+    });
+  }
+
+  function interrupt(): void {
+    if (!canInterrupt.value) return;
+    enqueueOrSend({ type: 'user.interrupt', payload: {} });
+  }
+
+  function connectByConversationId(conversationId: number): void {
+    connect(conversationId, true);
+  }
+
+  function resetConnection(): void {
+    manualClose = true;
+    closeSocket();
+    socketState.value = 'closed';
+    isLoading.value = false;
   }
 
   return {
     messages,
     isLoading,
-    pendingToolCallId,
-    pendingTool,
-    addMessage,
-    updateToolState,
-    requestToolApproval,
-    approveTool,
-    denyTool,
-    connect,
-    sendMessage
+    error,
+    socketState,
+    runtimeState,
+    currentConversationId,
+    canInterrupt,
+    pendingInputRequests,
+    lastMessageSequence,
+    bootstrapConversation,
+    connectByConversationId,
+    sendMessage,
+    submitInputResponse,
+    interrupt,
+    resetConnection,
   };
 });
