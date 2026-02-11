@@ -53,7 +53,7 @@ def create_app() -> FastAPI:
         if settings.project_root:
             logger.info(f"📁 Project root: {settings.project_root}")
             logger.info(f"🗄️  Database: {settings.database_url}")
-        
+
         if settings.db_auto_init:
             initialize_database(
                 database_url=settings.database_url,

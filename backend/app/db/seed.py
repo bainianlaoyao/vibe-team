@@ -155,12 +155,12 @@ def seed_initial_data(session: Session, *, project_root: Path | None = None) -> 
 
 def generate_test_project_data(session: Session | None = None) -> None:
     """生成测试项目数据，用于开发和演示。
-    
+
     这个函数可以独立运行，用于快速创建测试数据。
     如果提供了 session，则使用提供的 session；否则创建新 session。
     """
     from app.db.engine import get_engine
-    
+
     if session is None:
         engine = get_engine()
         with Session(engine) as new_session:
@@ -173,24 +173,24 @@ def _generate_test_data_impl(session: Session) -> None:
     """实际生成测试数据的实现。"""
     from app.db.enums import InboxItemType, InboxStatus, SourceType
     from app.db.models import InboxItem
-    
+
     settings = get_settings()
     if settings.project_root is None:
         raise ValueError("PROJECT_ROOT must be set to generate test data")
-    
+
     project_root = settings.project_root.resolve()
     root_path = str(project_root)
-    
+
     # 查找或创建项目
     project = session.exec(select(Project).where(Project.root_path == root_path)).first()
     if project is None:
         project = Project(name="Test Project", root_path=root_path)
         session.add(project)
         session.flush()
-    
+
     if project.id is None:
         raise RuntimeError("Failed to create or retrieve project")
-    
+
     # 创建测试 Agents
     test_agents = [
         {
@@ -201,23 +201,20 @@ def _generate_test_data_impl(session: Session) -> None:
             "enabled_tools_json": ["list_path_tool", "read_file_tool"],
         },
         {
-            "name": "Test Backend Agent", 
+            "name": "Test Backend Agent",
             "role": "backend",
             "model_provider": "claude_code",
             "model_name": "claude-sonnet-4-5",
             "enabled_tools_json": ["list_path_tool", "read_file_tool", "search_project_files_tool"],
         },
     ]
-    
+
     agent_ids: dict[str, int] = {}
     for agent_def in test_agents:
         existing = session.exec(
-            select(Agent).where(
-                Agent.project_id == project.id,
-                Agent.name == agent_def["name"]
-            )
+            select(Agent).where(Agent.project_id == project.id, Agent.name == agent_def["name"])
         ).first()
-        
+
         if existing is None:
             agent = Agent(
                 project_id=project.id,
@@ -234,7 +231,7 @@ def _generate_test_data_impl(session: Session) -> None:
                 agent_ids[agent_def["name"]] = agent.id
         else:
             agent_ids[agent_def["name"]] = int(existing.id)
-    
+
     # 创建测试 Tasks
     test_tasks = [
         {
@@ -268,15 +265,12 @@ def _generate_test_data_impl(session: Session) -> None:
             "priority": 2,
         },
     ]
-    
+
     for task_def in test_tasks:
         existing = session.exec(
-            select(Task).where(
-                Task.project_id == project.id,
-                Task.title == task_def["title"]
-            )
+            select(Task).where(Task.project_id == project.id, Task.title == task_def["title"])
         ).first()
-        
+
         if existing is None:
             task = Task(
                 project_id=project.id,
@@ -291,7 +285,7 @@ def _generate_test_data_impl(session: Session) -> None:
                 ),
             )
             session.add(task)
-    
+
     # 创建测试 Inbox Items
     test_inbox_items = [
         {
@@ -309,15 +303,14 @@ def _generate_test_data_impl(session: Session) -> None:
             "source_id": "task-notifier",
         },
     ]
-    
+
     for inbox_def in test_inbox_items:
         existing = session.exec(
             select(InboxItem).where(
-                InboxItem.project_id == project.id,
-                InboxItem.source_id == inbox_def["source_id"]
+                InboxItem.project_id == project.id, InboxItem.source_id == inbox_def["source_id"]
             )
         ).first()
-        
+
         if existing is None:
             inbox_item = InboxItem(
                 project_id=project.id,
@@ -329,7 +322,7 @@ def _generate_test_data_impl(session: Session) -> None:
                 status=InboxStatus.OPEN,
             )
             session.add(inbox_item)
-    
+
     session.commit()
     print(f"✅ Test data generated successfully for project: {project.name}")
     print(f"   - Agents: {len(test_agents)}")

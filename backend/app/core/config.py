@@ -130,11 +130,11 @@ def load_settings() -> Settings:
     default_testing = app_env == "test"
     default_db_auto_init = app_env == "development"
     default_db_auto_seed = app_env == "development"
-    
+
     # 处理 PROJECT_ROOT
     project_root_str = os.getenv("PROJECT_ROOT")
     project_root: Path | None = None
-    
+
     if project_root_str:
         project_root = Path(project_root_str)
         if not project_root.exists():
@@ -147,13 +147,14 @@ def load_settings() -> Settings:
             "PROJECT_ROOT environment variable is required. "
             "Please set it to your project directory path."
         )
-    
+
     # 确定数据库 URL
     database_url = os.getenv("DATABASE_URL")
     if database_url:
         # 如果显式设置了 DATABASE_URL，优先使用它（但打印警告）
         if project_root:
             import warnings
+
             warnings.warn(
                 "Both DATABASE_URL and PROJECT_ROOT are set. "
                 f"Using DATABASE_URL: {database_url}",
