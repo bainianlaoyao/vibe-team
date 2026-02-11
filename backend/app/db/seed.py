@@ -211,26 +211,28 @@ def _generate_test_data_impl(session: Session) -> None:
 
     agent_ids: dict[str, int] = {}
     for agent_def in test_agents:
-        existing = session.exec(
-            select(Agent).where(Agent.project_id == project.id, Agent.name == agent_def["name"])
+        agent_name = str(agent_def["name"])
+        existing_agent = session.exec(
+            select(Agent).where(Agent.project_id == project.id, Agent.name == agent_name)
         ).first()
 
-        if existing is None:
+        if existing_agent is None:
             agent = Agent(
                 project_id=project.id,
-                name=agent_def["name"],
-                role=agent_def["role"],
-                model_provider=agent_def["model_provider"],
-                model_name=agent_def["model_name"],
-                enabled_tools_json=agent_def["enabled_tools_json"],
+                name=agent_name,
+                role=str(agent_def["role"]),
+                model_provider=str(agent_def["model_provider"]),
+                model_name=str(agent_def["model_name"]),
+                enabled_tools_json=list(agent_def["enabled_tools_json"]),
                 status=AgentStatus.ACTIVE,
             )
             session.add(agent)
             session.flush()
             if agent.id is not None:
-                agent_ids[agent_def["name"]] = agent.id
+                agent_ids[agent_name] = agent.id
         else:
-            agent_ids[agent_def["name"]] = int(existing.id)
+            if existing_agent.id is not None:
+                agent_ids[agent_name] = int(existing_agent.id)
 
     # 创建测试 Tasks
     test_tasks = [
@@ -267,11 +269,12 @@ def _generate_test_data_impl(session: Session) -> None:
     ]
 
     for task_def in test_tasks:
-        existing = session.exec(
-            select(Task).where(Task.project_id == project.id, Task.title == task_def["title"])
+        task_title = str(task_def["title"])
+        existing_task = session.exec(
+            select(Task).where(Task.project_id == project.id, Task.title == task_title)
         ).first()
 
-        if existing is None:
+        if existing_task is None:
             task = Task(
                 project_id=project.id,
                 title=task_def["title"],
@@ -280,7 +283,7 @@ def _generate_test_data_impl(session: Session) -> None:
                 priority=task_def["priority"],
                 assignee_agent_id=(
                     agent_ids.get("Test Frontend Agent")
-                    if "frontend" in task_def["title"].lower()
+                    if "frontend" in str(task_def["title"]).lower()
                     else agent_ids.get("Test Backend Agent")
                 ),
             )
@@ -305,13 +308,14 @@ def _generate_test_data_impl(session: Session) -> None:
     ]
 
     for inbox_def in test_inbox_items:
-        existing = session.exec(
+        source_id = str(inbox_def["source_id"])
+        existing_inbox = session.exec(
             select(InboxItem).where(
-                InboxItem.project_id == project.id, InboxItem.source_id == inbox_def["source_id"]
+                InboxItem.project_id == project.id, InboxItem.source_id == source_id
             )
         ).first()
 
-        if existing is None:
+        if existing_inbox is None:
             inbox_item = InboxItem(
                 project_id=project.id,
                 source_type=inbox_def["source_type"],
