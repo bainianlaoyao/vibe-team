@@ -8,6 +8,7 @@ import sys
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 
@@ -39,6 +40,8 @@ from app.db.bootstrap import initialize_database
 from app.db.engine import dispose_engine, get_engine
 from app.runtime import build_stuck_run_detector, run_stuck_detector_loop
 
+logger = logging.getLogger(__name__)
+
 
 def create_app() -> FastAPI:
     settings = get_settings()
@@ -46,10 +49,16 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        # 记录项目绑定信息
+        if settings.project_root:
+            logger.info(f"📁 Project root: {settings.project_root}")
+            logger.info(f"🗄️  Database: {settings.database_url}")
+        
         if settings.db_auto_init:
             initialize_database(
                 database_url=settings.database_url,
                 seed=settings.db_auto_seed,
+                project_root=settings.project_root,
             )
         get_engine()
         detector_task: asyncio.Task[None] | None = None
