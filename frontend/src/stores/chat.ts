@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import type { ChatMessage, ToolInvocation, ToolState } from '@/types/chat';
+import type { ChatMessage, ToolInvocation } from '@/types/chat';
 
 export const useChatStore = defineStore('chat', () => {
   const messages = ref<ChatMessage[]>([]);
@@ -24,20 +24,6 @@ export const useChatStore = defineStore('chat', () => {
   // Actions
   function addMessage(message: ChatMessage) {
     messages.value.push(message);
-  }
-
-  function appendToLastMessage(content: string) {
-    const lastMsg = messages.value[messages.value.length - 1];
-    if (lastMsg && lastMsg.role === 'assistant') {
-        // Try to append to the last text part
-        const lastPart = lastMsg.parts[lastMsg.parts.length - 1];
-        if (lastPart.type === 'text') {
-            lastPart.content = (lastPart.content || '') + content;
-            return;
-        }
-    }
-    // Otherwise logic to add new part or new message would go here
-    // For now, simple state updates
   }
 
   function updateToolState(toolCallId: string, updates: Partial<ToolInvocation>) {
