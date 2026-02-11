@@ -69,7 +69,10 @@ class Agent(SQLModel, table=True):
     role: str = Field(sa_column=Column(String(length=80), nullable=False))
     model_provider: str = Field(sa_column=Column(String(length=80), nullable=False))
     model_name: str = Field(sa_column=Column(String(length=120), nullable=False))
-    initial_persona_prompt: str = Field(sa_column=Column(Text(), nullable=False))
+    persona_path: str | None = Field(
+        default=None,
+        sa_column=Column(String(length=512), nullable=True),
+    )
     enabled_tools_json: list[str] = Field(
         default_factory=list,
         sa_column=Column(JSON(), nullable=False),

@@ -75,13 +75,27 @@ def seed_initial_data(session: Session, *, project_root: Path | None = None) -> 
             agent_name = str(definition["name"])
             if agent_name in agent_ids_by_name:
                 continue
+
+            # Create persona file
+            sanitized_name = agent_name.strip().lower().replace(" ", "_")
+            persona_filename = f"{sanitized_name}.md"
+            agents_dir = resolved_root / "docs" / "agents"
+            agents_dir.mkdir(parents=True, exist_ok=True)
+            persona_file = agents_dir / persona_filename
+
+            # Only write if not exists to avoid overwriting user changes
+            if not persona_file.exists():
+                persona_file.write_text(str(definition["initial_persona_prompt"]), encoding="utf-8")
+
+            persona_rel_path = f"docs/agents/{persona_filename}"
+
             created_agent = Agent(
                 project_id=project.id,
                 name=agent_name,
                 role=str(definition["role"]),
                 model_provider=str(definition["model_provider"]),
                 model_name=str(definition["model_name"]),
-                initial_persona_prompt=str(definition["initial_persona_prompt"]),
+                persona_path=persona_rel_path,
                 enabled_tools_json=list(definition["enabled_tools_json"]),
                 status=AgentStatus.ACTIVE,
             )
