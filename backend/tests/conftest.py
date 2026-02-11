@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from pathlib import Path
+
+# 必须在导入 app 之前设置 TESTING 环境变量
+os.environ["TESTING"] = "true"
+os.environ["PROJECT_ROOT"] = str(Path(__file__).parent / "test_project")
 
 import pytest
 from fastapi.testclient import TestClient

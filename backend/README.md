@@ -46,7 +46,8 @@ cd backend
 - `APP_NAME`: 服务名称（默认 `BeeBeeBrain Backend`）
 - `HOST`: 绑定地址（默认 `127.0.0.1`）
 - `PORT`: 端口（默认 `8000`）
-- `DATABASE_URL`: 数据库连接串（默认开发 `sqlite:///./beebeebrain.db`，测试 `sqlite:///./beebeebrain_test.db`）
+- `PROJECT_ROOT`: 项目目录路径（必需，数据库将创建在 `{PROJECT_ROOT}/.beebeebrain/beebeebrain.db`）
+- `DATABASE_URL`: 数据库连接串（可选，默认从 PROJECT_ROOT 推导）
 - `DB_AUTO_INIT`: 启动时自动执行 DB 初始化（迁移）（默认仅 `APP_ENV=development` 为 `true`）
 - `DB_AUTO_SEED`: 启动时自动写入种子数据（默认仅 `APP_ENV=development` 为 `true`）
 - `DEBUG`: 调试开关（默认开发/测试 `true`，生产 `false`）

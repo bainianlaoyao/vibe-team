@@ -51,3 +51,7 @@ frontend/.playwright/
 *cache*
 .env
 play_ground
+
+# Project-specific data directories
+.beebeebrain/
+*/.beebeebrain/

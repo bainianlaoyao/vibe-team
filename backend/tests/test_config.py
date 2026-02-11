@@ -13,7 +13,9 @@ def test_load_settings_for_test_env(monkeypatch: MonkeyPatch) -> None:
     assert settings.app_env == "test"
     assert settings.testing is True
     assert settings.debug is True
-    assert settings.database_url == "sqlite:///./beebeebrain_test.db"
+    # database_url 现在从 PROJECT_ROOT 推导
+    assert ".beebeebrain" in settings.database_url
+    assert "beebeebrain.db" in settings.database_url
     assert settings.db_auto_init is False
     assert settings.db_auto_seed is False
 
