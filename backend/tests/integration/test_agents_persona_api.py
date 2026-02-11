@@ -56,9 +56,7 @@ def test_agent_update_updates_persona_file(api_context: ApiTestContext) -> None:
     agent_id = create_res.json()["id"]
 
     # Update persona
-    update_payload = {
-        "initial_persona_prompt": "Updated persona content."
-    }
+    update_payload = {"initial_persona_prompt": "Updated persona content."}
     update_res = api_context.client.patch(f"/api/v1/agents/{agent_id}", json=update_payload)
     assert update_res.status_code == 200
 
@@ -87,9 +85,7 @@ def test_agent_renaming_renames_persona_file(api_context: ApiTestContext) -> Non
     assert old_path.exists()
 
     # Rename agent
-    update_payload = {
-        "name": "New Name Agent"
-    }
+    update_payload = {"name": "New Name Agent"}
     update_res = api_context.client.patch(f"/api/v1/agents/{agent_id}", json=update_payload)
     assert update_res.status_code == 200
 
@@ -201,4 +197,3 @@ def test_create_agent_without_persona(api_context: ApiTestContext) -> None:
         agent = session.exec(select(Agent).where(Agent.id == data["id"])).one()
         assert agent.persona_path is not None
         assert agent.persona_path.endswith(".md")
-

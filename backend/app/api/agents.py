@@ -389,14 +389,14 @@ def update_agent(agent_id: int, payload: AgentUpdate, session: DbSession) -> Age
 
         content_to_write = ""
         if "initial_persona_prompt" in payload.model_fields_set and payload.initial_persona_prompt:
-             content_to_write = payload.initial_persona_prompt
+            content_to_write = payload.initial_persona_prompt
         elif old_path:
-             old_full_path = Path(project.root_path) / old_path
-             if old_full_path.exists():
-                 content_to_write = old_full_path.read_text(encoding="utf-8")
+            old_full_path = Path(project.root_path) / old_path
+            if old_full_path.exists():
+                content_to_write = old_full_path.read_text(encoding="utf-8")
 
         if not content_to_write:
-             content_to_write = f"# {new_name}\n\nRenamed from {agent.name}"
+            content_to_write = f"# {new_name}\n\nRenamed from {agent.name}"
 
         new_path = _create_persona_file(
             project.root_path,
@@ -412,13 +412,13 @@ def update_agent(agent_id: int, payload: AgentUpdate, session: DbSession) -> Age
         # Let's stick to the plan's logic: rename file.
 
         if old_path:
-             old_file = Path(project.root_path) / old_path
-             new_file = Path(project.root_path) / new_path
-             # If we didn't just create new_file via _create_persona_file above...
-             # Actually _create_persona_file was called.
-             # So we should delete old file.
-             if old_file.exists() and old_file != new_file:
-                 old_file.unlink()
+            old_file = Path(project.root_path) / old_path
+            new_file = Path(project.root_path) / new_path
+            # If we didn't just create new_file via _create_persona_file above...
+            # Actually _create_persona_file was called.
+            # So we should delete old file.
+            if old_file.exists() and old_file != new_file:
+                old_file.unlink()
 
     for field_name, value in update_data.items():
         setattr(agent, field_name, value)

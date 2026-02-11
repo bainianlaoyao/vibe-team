@@ -24,6 +24,7 @@ _DEFAULT_PERSONA_EXT: Final[str] = ".md"
 @dataclass(frozen=True, slots=True)
 class PersonaLoadResult:
     """Result of persona file loading."""
+
     content: str
     file_path: Path
     relative_path: str
@@ -119,9 +120,7 @@ class PersonaLoader:
                 max_read_bytes=128 * 1024,
             )
         except FileNotFoundError as exc:
-            raise FileNotFoundError(
-                f"Persona file not found at: {persona_path}"
-            ) from exc
+            raise FileNotFoundError(f"Persona file not found at: {persona_path}") from exc
 
         full_path = self._gateway.root_path / path
 

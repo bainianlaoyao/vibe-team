@@ -28,6 +28,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field, ValidationError
 from sqlmodel import select
 
+from app.agents.persona_loader import PersonaLoader
 from app.core.config import Settings, get_settings
 from app.core.logging import bind_log_context, clear_log_context, get_logger
 from app.db.enums import (
@@ -56,6 +57,7 @@ from app.db.session import session_scope
 from app.events.schemas import TASK_STATUS_CHANGED_EVENT_TYPE, build_task_status_payload
 from app.llm.providers.claude_code import CLAUDE_PROVIDER_NAME
 from app.llm.providers.claude_settings import resolve_claude_auth
+from app.security import SecureFileGateway
 
 router = APIRouter(tags=["ws_conversations"])
 
@@ -1475,7 +1477,21 @@ async def websocket_conversation(
         conversation_task_id = conversation.task_id
         agent_model_provider = agent.model_provider
         agent_model_name = agent.model_name
-        agent_system_prompt = agent.initial_persona_prompt
+
+        agent_system_prompt = ""
+        if project and agent.persona_path:
+            try:
+                gateway = SecureFileGateway(root_path=project.root_path)
+                loader = PersonaLoader(gateway=gateway)
+                result = loader.load_by_path(agent.persona_path)
+                agent_system_prompt = result.content
+            except Exception as e:
+                logger.warning(
+                    "ws_conversation.persona_load_failed",
+                    agent_id=agent.id,
+                    error=str(e),
+                )
+
         project_root_path = project.root_path if project is not None else None
 
         sess_repo = SessionRepository(session)

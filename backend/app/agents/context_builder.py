@@ -87,9 +87,7 @@ class PromptContextBuilder:
     def build(self, request: ContextBuildRequest) -> ContextBuildResult:
         task = self._require_task(request.task_id)
         project = self._require_project(task.project_id)
-        agent = (
-            self._require_agent(task.assignee_agent_id) if task.assignee_agent_id else None
-        )
+        agent = self._require_agent(task.assignee_agent_id) if task.assignee_agent_id else None
         token_budget = _resolve_token_budget(task.priority, request.token_budget)
         gateway = SecureFileGateway(root_path=project.root_path)
 

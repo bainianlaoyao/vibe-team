@@ -55,7 +55,7 @@ def test_migrations_create_expected_schema(tmp_path: Path) -> None:
             "role",
             "model_provider",
             "model_name",
-            "initial_persona_prompt",
+            "persona_path",
             "enabled_tools_json",
             "status",
             "version",

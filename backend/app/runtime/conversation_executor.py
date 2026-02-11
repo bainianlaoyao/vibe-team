@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from uuid import uuid4
 
+from app.agents.persona_loader import PersonaLoader
 from app.core.logging import get_logger
 from app.db.enums import MessageRole, MessageType
 from app.db.models import Agent, Conversation, Message, Project, Task
@@ -24,6 +25,7 @@ from app.llm.contracts import (
     StreamingLLMClient,
 )
 from app.llm.errors import LLMProviderError
+from app.security import SecureFileGateway
 
 logger = get_logger("bbb.runtime.conversation")
 
@@ -121,8 +123,23 @@ class ConversationExecutor:
             )
 
             messages = self._build_llm_messages(history)
+
+            base_prompt = ""
+            if project and agent.persona_path:
+                try:
+                    gateway = SecureFileGateway(root_path=project.root_path)
+                    loader = PersonaLoader(gateway=gateway)
+                    result = loader.load_by_path(agent.persona_path)
+                    base_prompt = result.content
+                except Exception as e:
+                    logger.warning(
+                        "conversation.persona_load_failed",
+                        agent_id=agent.id,
+                        error=str(e),
+                    )
+
             system_prompt = self._build_system_prompt(
-                base_prompt=agent.initial_persona_prompt or "",
+                base_prompt=base_prompt,
                 conversation=conversation,
                 task=task,
             )
