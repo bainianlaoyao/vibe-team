@@ -66,4 +66,5 @@ def ensure_database_parent_dir(database_url: str) -> None:
     db_path = resolve_sqlite_database_path(database_url)
     if db_path is None:
         return
+    # 确保父目录存在（包括 .beebeebrain 目录）
     db_path.parent.mkdir(parents=True, exist_ok=True)
