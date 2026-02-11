@@ -60,6 +60,7 @@ def test_load_settings_normalizes_log_format(monkeypatch: MonkeyPatch) -> None:
     settings = load_settings()
     assert settings.log_format == "console"
 
+    monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("LOG_FORMAT", "unsupported")
     settings = load_settings()
     assert settings.log_format == "json"
@@ -92,3 +93,13 @@ def test_load_settings_reads_local_api_key(monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setenv("LOCAL_API_KEY", "probe-key")
     settings = load_settings()
     assert settings.local_api_key == "probe-key"
+
+
+def test_load_settings_parses_chat_protocol_v2_flags(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setenv("CHAT_PROTOCOL_V2_ENABLED", "true")
+    monkeypatch.setenv("CHAT_INPUT_TIMEOUT_S", "321")
+
+    settings = load_settings()
+
+    assert settings.chat_protocol_v2_enabled is True
+    assert settings.chat_input_timeout_s == 321

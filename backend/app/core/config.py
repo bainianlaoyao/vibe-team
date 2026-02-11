@@ -28,6 +28,8 @@ class Settings(BaseModel):
     claude_settings_path: str | None = Field(default=None)
     claude_cli_path: str | None = Field(default=None)
     claude_default_max_turns: int = Field(default=8)
+    chat_protocol_v2_enabled: bool = Field(default=False)
+    chat_input_timeout_s: int = Field(default=600, ge=1)
     tasks_md_sync_enabled: bool = Field(default=False)
     tasks_md_output_path: str = Field(default="../tasks.md")
     log_level: str = Field(default="INFO")
@@ -142,6 +144,11 @@ def load_settings() -> Settings:
         claude_settings_path=os.getenv("CLAUDE_SETTINGS_PATH"),
         claude_cli_path=os.getenv("CLAUDE_CLI_PATH"),
         claude_default_max_turns=int(os.getenv("CLAUDE_DEFAULT_MAX_TURNS", "8")),
+        chat_protocol_v2_enabled=_to_bool(
+            os.getenv("CHAT_PROTOCOL_V2_ENABLED"),
+            default=False,
+        ),
+        chat_input_timeout_s=int(os.getenv("CHAT_INPUT_TIMEOUT_S", "600")),
         tasks_md_sync_enabled=_to_bool(os.getenv("TASKS_MD_SYNC_ENABLED"), default=False),
         tasks_md_output_path=os.getenv("TASKS_MD_OUTPUT_PATH", "../tasks.md"),
         log_level=os.getenv("LOG_LEVEL", "INFO"),

@@ -10,12 +10,12 @@ import os
 import shutil
 import traceback
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter
 
 from app.core.config import get_settings
-from app.llm.contracts import LLMMessage, LLMRequest, LLMRole, StreamEvent
+from app.llm.contracts import LLMMessage, LLMRequest, LLMRole, StreamEvent, StreamingLLMClient
 from app.llm.factory import create_llm_client
 from app.llm.providers.claude_code import ClaudeCodeAdapter
 from app.llm.providers.claude_settings import resolve_claude_auth
@@ -124,7 +124,7 @@ async def test_claude_in_uvicorn() -> dict[str, Any]:
             session_id="uvicorn-adapter-debug",
             system_prompt="Be very brief.",
             max_turns=1,
-            cwd=str(Path.home()),
+            cwd=Path.home(),
         )
         response = await adapter.generate(request)
         results["adapter"] = {
@@ -148,7 +148,7 @@ async def test_claude_in_uvicorn() -> dict[str, Any]:
             session_id="uvicorn-factory-debug",
             system_prompt="Be very brief.",
             max_turns=1,
-            cwd="E:/beebeebrain/play_ground",
+            cwd=Path("E:/beebeebrain/play_ground"),
         )
         response = await llm_client.generate(request)
         results["factory_client"] = {
@@ -177,9 +177,10 @@ async def test_claude_in_uvicorn() -> dict[str, Any]:
             session_id="uvicorn-stream-debug",
             system_prompt="Be very brief.",
             max_turns=1,
-            cwd="E:/beebeebrain/play_ground",
+            cwd=Path("E:/beebeebrain/play_ground"),
         )
-        response = await llm_client.generate_stream(request, callback)
+        streaming_client = cast(StreamingLLMClient, llm_client)
+        response = await streaming_client.generate_stream(request, callback)
         results["streaming"] = {
             "success": True,
             "text": response.text[:100] if response.text else None,
