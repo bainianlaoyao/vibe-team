@@ -30,34 +30,34 @@ const stateIcon = computed(() => {
 </script>
 
 <template>
-  <div class="tool-call-block my-2 rounded border border-gray-800 bg-gray-900 overflow-hidden font-mono text-sm">
+  <div class="tool-call-block my-2 rounded border border-border bg-bg-elevated overflow-hidden font-mono text-sm">
     <!-- Header -->
     <div
-      class="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-gray-800 transition-colors"
+      class="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-bg-tertiary transition-colors"
       @click="isExpanded = !isExpanded"
     >
       <div class="flex items-center gap-2">
         <span :class="stateColor">{{ stateIcon }}</span>
-        <span class="font-bold text-gray-200">{{ tool.toolName }}</span>
-        <span class="text-gray-500 text-xs truncate max-w-[200px]">
+        <span class="font-bold text-text-primary">{{ tool.toolName }}</span>
+        <span class="text-text-tertiary text-xs truncate max-w-[200px]">
            {{ JSON.stringify(tool.args) }}
         </span>
       </div>
-      <div class="text-xs text-gray-600">
+      <div class="text-xs text-text-muted">
         {{ tool.state }}
       </div>
     </div>
 
     <!-- Body (Expanded) -->
-    <div v-if="isExpanded" class="px-3 py-2 border-t border-gray-800 bg-black/50">
+    <div v-if="isExpanded" class="px-3 py-2 border-t border-border bg-bg-tertiary/50">
       <div class="mb-2">
-        <div class="text-xs text-gray-500 mb-1">Arguments:</div>
-        <pre class="text-xs text-gray-300 overflow-x-auto p-2 bg-gray-950 rounded">{{ JSON.stringify(tool.args, null, 2) }}</pre>
+        <div class="text-xs text-text-tertiary mb-1">Arguments:</div>
+        <pre class="text-xs text-text-secondary overflow-x-auto p-2 bg-bg-secondary rounded">{{ JSON.stringify(tool.args, null, 2) }}</pre>
       </div>
 
       <div v-if="tool.result">
-        <div class="text-xs text-gray-500 mb-1">Result:</div>
-        <pre class="text-xs text-green-400 overflow-x-auto p-2 bg-gray-950 rounded max-h-60">{{ tool.result }}</pre>
+        <div class="text-xs text-text-tertiary mb-1">Result:</div>
+        <pre class="text-xs text-green-600 overflow-x-auto p-2 bg-bg-secondary rounded max-h-60">{{ tool.result }}</pre>
       </div>
     </div>
   </div>

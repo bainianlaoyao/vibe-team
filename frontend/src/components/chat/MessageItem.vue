@@ -20,7 +20,7 @@ const containerClass = computed(() => {
 const bubbleClass = computed(() => {
   return isUser.value
     ? 'bg-blue-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 max-w-[80%]'
-    : 'bg-zinc-800 text-gray-100 rounded-2xl rounded-tl-sm px-4 py-3 max-w-[90%] w-full shadow-lg border border-zinc-700/50';
+    : 'bg-bg-elevated text-text-primary rounded-2xl rounded-tl-sm px-4 py-3 max-w-[90%] w-full shadow-lg border border-border';
 });
 </script>
 
