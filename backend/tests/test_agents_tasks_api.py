@@ -1,34 +1,14 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
-from dataclasses import dataclass
 from decimal import Decimal
-from pathlib import Path
 from typing import Any, cast
 
-import pytest
-from fastapi.testclient import TestClient
 from pytest import MonkeyPatch
-from sqlalchemy.engine import Engine
-from sqlmodel import Session, SQLModel, select
+from sqlmodel import Session, select
 
-from app.core.config import get_settings
-from app.db.engine import create_engine_from_url, dispose_engine
-from app.db.models import Event, Project
+from app.db.models import Event
 from app.llm import LLMErrorCode, LLMProviderError, LLMResponse, LLMUsage
-from app.main import create_app
-
-
-def _to_sqlite_url(path: Path) -> str:
-    return f"sqlite:///{path.as_posix()}"
-
-
-@dataclass
-class ApiTestContext:
-    client: TestClient
-    engine: Engine
-    project_id: int
-    other_project_id: int
+from tests.shared import ApiTestContext
 
 
 class SequenceLLMClient:
@@ -44,46 +24,6 @@ class SequenceLLMClient:
         if isinstance(outcome, Exception):
             raise outcome
         return outcome
-
-
-@pytest.fixture
-def api_context(tmp_path: Path, monkeypatch: MonkeyPatch) -> Iterator[ApiTestContext]:
-    db_url = _to_sqlite_url(tmp_path / "api-integration.db")
-    monkeypatch.setenv("APP_ENV", "test")
-    monkeypatch.setenv("DATABASE_URL", db_url)
-    get_settings.cache_clear()
-    dispose_engine()
-
-    engine = create_engine_from_url(db_url)
-    SQLModel.metadata.create_all(engine)
-
-    with Session(engine) as session:
-        project = Project(name="API Project", root_path=str((tmp_path / "workspace").resolve()))
-        other_project = Project(
-            name="API Project 2",
-            root_path=str((tmp_path / "workspace-2").resolve()),
-        )
-        session.add(project)
-        session.add(other_project)
-        session.commit()
-        session.refresh(project)
-        session.refresh(other_project)
-        assert project.id is not None
-        assert other_project.id is not None
-        project_id = project.id
-        other_project_id = other_project.id
-
-    with TestClient(create_app()) as client:
-        yield ApiTestContext(
-            client=client,
-            engine=engine,
-            project_id=project_id,
-            other_project_id=other_project_id,
-        )
-
-    engine.dispose()
-    dispose_engine()
-    get_settings.cache_clear()
 
 
 def _success_llm_response(*, session_id: str) -> LLMResponse:

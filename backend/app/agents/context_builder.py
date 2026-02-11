@@ -7,7 +7,8 @@ from typing import Any, cast
 
 from sqlmodel import Session, select
 
-from app.db.models import Document, Project, Task, TaskDependency
+from app.agents.persona_loader import PersonaLoader
+from app.db.models import Agent, Document, Project, Task, TaskDependency
 from app.security import SecureFileGateway
 
 _DEFAULT_TEMPLATE_DIR = Path(__file__).resolve().parent / "prompt_templates"
@@ -86,6 +87,9 @@ class PromptContextBuilder:
     def build(self, request: ContextBuildRequest) -> ContextBuildResult:
         task = self._require_task(request.task_id)
         project = self._require_project(task.project_id)
+        agent = (
+            self._require_agent(task.assignee_agent_id) if task.assignee_agent_id else None
+        )
         token_budget = _resolve_token_budget(task.priority, request.token_budget)
         gateway = SecureFileGateway(root_path=project.root_path)
 
@@ -94,6 +98,11 @@ class PromptContextBuilder:
             "task_type": request.task_type,
             "task_summary": self._build_task_summary(task=task),
             "dependency_summary": self._build_dependency_summary(task=task),
+            "agent_persona": (
+                self._load_agent_persona(agent=agent, gateway=gateway)
+                if agent
+                else "(no agent assigned)"
+            ),
             "global_rules": self._load_global_rules(gateway),
             "project_docs": self._load_project_documents(task=task, gateway=gateway),
             "tasks_md_snapshot": self._load_tasks_md_snapshot(gateway),
@@ -179,6 +188,41 @@ class PromptContextBuilder:
         if project is None:
             raise LookupError(f"Project {project_id} does not exist.")
         return project
+
+    def _require_agent(self, agent_id: int) -> Agent:
+        agent = self._session.get(Agent, agent_id)
+        if agent is None:
+            raise LookupError(f"Agent {agent_id} does not exist.")
+        return agent
+
+    def _load_agent_persona(self, *, agent: Agent, gateway: SecureFileGateway) -> str:
+        """Load agent persona from file system.
+
+        Args:
+            agent: Agent model with persona_path field
+            gateway: SecureFileGateway for safe file access
+
+        Returns:
+            Persona content as string
+
+        Raises:
+            FileNotFoundError: If persona file doesn't exist (no fallback)
+        """
+        if not agent.persona_path:
+            return "(no persona configured)"
+
+        loader = PersonaLoader(gateway=gateway)
+
+        try:
+            result = loader.load_by_path(agent.persona_path)
+            return f"# Agent Persona: {agent.name}\n\n{result.content}"
+        except FileNotFoundError as exc:
+            # No database fallback - strict requirement
+            raise FileNotFoundError(
+                f"Agent '{agent.name}' (ID: {agent.id}) references persona file "
+                f"'{agent.persona_path}' which does not exist. "
+                f"Please create the persona file or update the agent configuration."
+            ) from exc
 
     def _build_task_summary(self, *, task: Task) -> str:
         lines = [
