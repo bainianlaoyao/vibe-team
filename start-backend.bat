@@ -11,9 +11,13 @@ set APP_ENV=development
 set DEBUG=true
 set LOG_FORMAT=console
 
+:: 项目目录配置 (数据库存放在此处)
+if not defined PROJECT_ROOT set PROJECT_ROOT=../play_ground
+
 echo.
 echo [配置信息]
-echo   数据库: backend/beebeebrain.db
+echo   项目目录: %PROJECT_ROOT%
+echo   数据库: %PROJECT_ROOT%/.beebeebrain/beebeebrain.db
 echo   API地址: http://127.0.0.1:8000
 echo   Windows: 使用 ProactorEventLoop 支持 asyncio subprocess
 echo.

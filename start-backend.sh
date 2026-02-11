@@ -10,9 +10,13 @@ export APP_ENV=development
 export DEBUG=true
 export LOG_FORMAT=console
 
+# 项目目录配置 (数据库存放在此处)
+export PROJECT_ROOT="${PROJECT_ROOT:-../play_ground}"
+
 echo ""
 echo "[配置信息]"
-echo "  数据库: backend/beebeebrain.db"
+echo "  项目目录: $PROJECT_ROOT"
+echo "  数据库: $PROJECT_ROOT/.beebeebrain/beebeebrain.db"
 echo "  API地址: http://127.0.0.1:8000"
 echo ""
 
