@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { ChatMessage, MessagePart } from '@/types/chat';
+import type { ChatMessage } from '@/types/chat';
 import MarkdownBlock from './MarkdownBlock.vue';
 import ToolCallBlock from './ToolCallBlock.vue';
 import ThinkingBlock from './ThinkingBlock.vue';
