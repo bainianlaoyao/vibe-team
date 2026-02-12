@@ -30,6 +30,7 @@ class Settings(BaseModel):
     claude_settings_path: str | None = Field(default=None)
     claude_cli_path: str | None = Field(default=None)
     claude_default_max_turns: int = Field(default=8)
+    chat_protocol_v2_enabled: bool = Field(default=False)
     chat_input_timeout_s: int = Field(default=600, ge=1)
     tasks_md_sync_enabled: bool = Field(default=False)
     tasks_md_output_path: str = Field(default="../tasks.md")
@@ -47,9 +48,7 @@ class Settings(BaseModel):
     stuck_repeat_threshold: float = Field(default=0.8, ge=0, le=1)
     stuck_error_rate_threshold: float = Field(default=0.6, ge=0, le=1)
     stuck_scan_interval_s: int = Field(default=60, ge=1)
-    cors_allow_origins: list[str] = Field(
-        default_factory=lambda: ["*"]
-    )
+    cors_allow_origins: list[str] = Field(default_factory=lambda: ["*"])
     cors_allow_credentials: bool = Field(default=True)
 
 
@@ -176,6 +175,7 @@ def load_settings() -> Settings:
         claude_settings_path=os.getenv("CLAUDE_SETTINGS_PATH"),
         claude_cli_path=os.getenv("CLAUDE_CLI_PATH"),
         claude_default_max_turns=int(os.getenv("CLAUDE_DEFAULT_MAX_TURNS", "8")),
+        chat_protocol_v2_enabled=_to_bool(os.getenv("CHAT_PROTOCOL_V2_ENABLED"), default=False),
         chat_input_timeout_s=int(os.getenv("CHAT_INPUT_TIMEOUT_S", "600")),
         tasks_md_sync_enabled=_to_bool(os.getenv("TASKS_MD_SYNC_ENABLED"), default=False),
         tasks_md_output_path=os.getenv("TASKS_MD_OUTPUT_PATH", "../tasks.md"),

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import sys
+import threading
 from collections.abc import AsyncIterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,7 +10,7 @@ from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
-from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock, ToolUseBlock
+from claude_agent_sdk import AssistantMessage, ResultMessage, SystemMessage, TextBlock, ToolUseBlock
 from fastapi.testclient import TestClient
 from pytest import MonkeyPatch
 from sqlalchemy.engine import Engine
@@ -45,12 +48,17 @@ class FakeClaudeSessionClient:
         self.interrupt_count = 0
         self.sent_payloads: list[dict[str, Any]] = []
         self._responses: list[list[Any]] = []
+        self.connect_thread_id: int | None = None
+        self.connect_loop_name: str | None = None
+        self.query_thread_id: int | None = None
 
     def push_turn(self, messages: list[Any]) -> None:
         self._responses.append(messages)
 
     async def connect(self, prompt: str | AsyncIterable[dict[str, Any]] | None = None) -> None:
         _ = prompt
+        self.connect_thread_id = threading.get_ident()
+        self.connect_loop_name = asyncio.get_running_loop().__class__.__name__
         self.connected = True
 
     async def query(
@@ -59,6 +67,7 @@ class FakeClaudeSessionClient:
         session_id: str = "default",
     ) -> None:
         _ = session_id
+        self.query_thread_id = threading.get_ident()
         if isinstance(prompt, str):
             self.sent_payloads.append(
                 {
@@ -110,6 +119,47 @@ def _receive_until(websocket: Any, event_type: str, *, limit: int = 20) -> dict[
     raise AssertionError(f"Did not receive event {event_type} within {limit} messages")
 
 
+def test_shutdown_state_disconnects_sdk_client_even_when_not_connected(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    from app.api import ws_conversations as ws_api
+
+    class DisconnectProbeClient:
+        def __init__(self) -> None:
+            self.disconnect_calls = 0
+
+        async def disconnect(self) -> None:
+            self.disconnect_calls += 1
+
+    probe = DisconnectProbeClient()
+    monkeypatch.setattr(ws_api.SessionRepository, "disconnect", lambda self, session_id: None)
+
+    state = ws_api.ConnectionState(
+        websocket=cast(Any, MagicMock()),
+        settings=Settings(),
+        conversation_id=1,
+        client_id="client",
+        session_id=1,
+        project_id=1,
+        agent_id=1,
+        task_id=None,
+        model_provider="anthropic",
+        model_name="claude-sonnet-4-5",
+        system_prompt="system",
+        workspace_root=None,
+    )
+    state.sdk_client = cast(Any, probe)
+    state.sdk_connected = False
+
+    async def _run() -> None:
+        await ws_api._shutdown_state(state, close_socket=False, reason="unit-test")
+
+    asyncio.run(_run())
+
+    assert probe.disconnect_calls == 1
+    assert state.sdk_connected is False
+
+
 def test_create_claude_session_client_uses_windows_default_cli_path(
     monkeypatch: MonkeyPatch,
 ) -> None:
@@ -145,6 +195,57 @@ def test_create_claude_session_client_uses_windows_default_cli_path(
 
     _ = ws_api._create_claude_session_client(state)
     assert captured["cli_path"] == "claude.cmd"
+
+
+def test_threaded_claude_session_client_supports_selector_loop() -> None:
+    from app.api import ws_conversations as ws_api
+
+    selector_loop_factory = getattr(asyncio, "SelectorEventLoop", None)
+    if selector_loop_factory is None:
+        pytest.skip("SelectorEventLoop is unavailable on this platform.")
+
+    fake_client = FakeClaudeSessionClient()
+    fake_client.push_turn(
+        [
+            AssistantMessage(
+                content=[TextBlock(text="hello from threaded client")],
+                model="claude-sonnet-4-5",
+            ),
+            _result_message(),
+        ]
+    )
+    client = ws_api.ThreadedClaudeSessionClient(
+        options=MagicMock(),
+        client_factory=lambda _options: fake_client,
+    )
+
+    loop = selector_loop_factory()
+    asyncio.set_event_loop(loop)
+    try:
+
+        async def _run() -> list[Any]:
+            main_thread_id = threading.get_ident()
+            await client.connect()
+            await client.query("hello", session_id="selector-loop")
+            messages: list[Any] = []
+            async for message in client.receive_response():
+                messages.append(message)
+            await client.disconnect()
+            assert fake_client.connect_thread_id is not None
+            assert fake_client.query_thread_id is not None
+            assert fake_client.connect_thread_id != main_thread_id
+            assert fake_client.query_thread_id != main_thread_id
+            return messages
+
+        messages = loop.run_until_complete(_run())
+    finally:
+        loop.close()
+        asyncio.set_event_loop(None)
+
+    assert fake_client.connect_loop_name is not None
+    if sys.platform == "win32":
+        assert fake_client.connect_loop_name == "ProactorEventLoop"
+    assert any(isinstance(message, ResultMessage) for message in messages)
 
 
 @pytest.fixture
@@ -255,6 +356,42 @@ class TestWebSocketMessaging:
             ack = websocket.receive_json()
             assert ack["type"] == "session.heartbeat_ack"
             assert "server_time" in ack["payload"]
+
+    def test_filters_init_system_message(self, ws_context: WSTestContext) -> None:
+        ws_context.fake_client.push_turn(
+            [
+                SystemMessage(subtype="init", data={"type": "system", "subtype": "init"}),
+                AssistantMessage(
+                    content=[TextBlock(text="Hello after init")],
+                    model="claude-sonnet-4-5",
+                ),
+                _result_message(),
+            ]
+        )
+        with ws_context.client.websocket_connect(
+            f"/ws/conversations/{ws_context.conversation_id}?protocol=v2"
+        ) as websocket:
+            websocket.receive_json()
+            websocket.send_json(
+                {
+                    "type": "user.message",
+                    "payload": {"content": "trigger init system message"},
+                }
+            )
+
+            received_events: list[dict[str, Any]] = []
+            for _ in range(30):
+                message = websocket.receive_json()
+                received_events.append(message)
+                if message["type"] == "assistant.complete":
+                    break
+
+            assert any(event["type"] == "assistant.chunk" for event in received_events)
+            assert not any(
+                event["type"] == "session.system_event"
+                and event["payload"].get("subtype", "").strip().lower() == "init"
+                for event in received_events
+            )
 
     def test_user_interrupt(self, ws_context: WSTestContext) -> None:
         with ws_context.client.websocket_connect(

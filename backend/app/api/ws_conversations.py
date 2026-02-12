@@ -3,7 +3,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-from collections.abc import AsyncIterable, AsyncIterator
+import queue
+import sys
+import threading
+from collections.abc import AsyncIterable, AsyncIterator, Callable, Coroutine
 from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -56,7 +59,7 @@ from app.db.repositories import MessageRepository, SessionRepository
 from app.db.session import session_scope
 from app.events.schemas import TASK_STATUS_CHANGED_EVENT_TYPE, build_task_status_payload
 from app.llm.providers.claude_code import CLAUDE_PROVIDER_NAME
-from app.llm.providers.claude_settings import resolve_claude_auth
+from app.llm.providers.claude_settings import resolve_claude_auth, resolve_claude_cli_path
 from app.security import SecureFileGateway
 
 router = APIRouter(tags=["ws_conversations"])
@@ -71,6 +74,7 @@ MAX_RAW_EVENT_JSON_CHARS = 8000
 CONVERSATION_INPUT_REQUESTED_EVENT_TYPE = "conversation.input.requested"
 CONVERSATION_INPUT_SUBMITTED_EVENT_TYPE = "conversation.input.submitted"
 CONVERSATION_INTERRUPTED_EVENT_TYPE = "conversation.interrupted"
+FILTERED_SYSTEM_MESSAGE_SUBTYPES = {"init"}
 
 
 class WSMessageType(StrEnum):
@@ -153,6 +157,192 @@ class ClaudeSessionClient(Protocol):
     def receive_response(self) -> AsyncIterator[Any]: ...
     async def interrupt(self) -> None: ...
     async def disconnect(self) -> None: ...
+
+
+@dataclass(slots=True)
+class _StreamFailure:
+    error: Exception
+
+
+class _StreamEnd:
+    pass
+
+
+class ThreadedClaudeSessionClient:
+    def __init__(
+        self,
+        *,
+        options: ClaudeAgentOptions,
+        client_factory: Callable[[ClaudeAgentOptions], ClaudeSessionClient] | None = None,
+    ) -> None:
+        self._options = options
+        self._client_factory = client_factory or (lambda current: ClaudeSDKClient(options=current))
+        self._client = self._client_factory(options)
+        self._thread: threading.Thread | None = None
+        self._thread_loop: asyncio.AbstractEventLoop | None = None
+        self._thread_ready = threading.Event()
+        self._thread_lock = threading.Lock()
+        self._stream_task: asyncio.Task[None] | None = None
+        self._message_queue: queue.Queue[Any] | None = None
+        self._connected = False
+
+    def _thread_main(self) -> None:
+        if sys.platform == "win32":
+            loop: asyncio.AbstractEventLoop = asyncio.ProactorEventLoop()
+        else:
+            loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        self._thread_loop = loop
+        self._thread_ready.set()
+        try:
+            loop.run_forever()
+        finally:
+            pending = [task for task in asyncio.all_tasks(loop) if not task.done()]
+            for task in pending:
+                task.cancel()
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            with contextlib.suppress(Exception):
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            if hasattr(loop, "shutdown_default_executor"):
+                with contextlib.suppress(Exception):
+                    loop.run_until_complete(loop.shutdown_default_executor())
+            loop.close()
+            self._thread_loop = None
+
+    def _ensure_thread_started(self) -> None:
+        with self._thread_lock:
+            if self._thread is not None and self._thread.is_alive():
+                return
+            self._thread_ready.clear()
+            self._thread = threading.Thread(
+                target=self._thread_main,
+                daemon=True,
+                name="claude-session-loop",
+            )
+            self._thread.start()
+
+        if not self._thread_ready.wait(timeout=5):
+            raise RuntimeError("Failed to start Claude session loop thread.")
+
+    async def _run_in_thread_loop(self, coroutine: Coroutine[Any, Any, Any]) -> Any:
+        self._ensure_thread_started()
+        if self._thread_loop is None:
+            raise RuntimeError("Claude session loop is not available.")
+        future = asyncio.run_coroutine_threadsafe(coroutine, self._thread_loop)
+        return await asyncio.wrap_future(future)
+
+    async def connect(self, prompt: str | AsyncIterable[dict[str, Any]] | None = None) -> None:
+        _ = prompt
+        if self._connected:
+            return
+        await self._run_in_thread_loop(self._client.connect())
+        self._connected = True
+
+    async def query(
+        self,
+        prompt: str | AsyncIterable[dict[str, Any]],
+        session_id: str = "default",
+    ) -> None:
+        if not self._connected:
+            raise RuntimeError("Claude session is not connected.")
+
+        if isinstance(prompt, str):
+            normalized_prompt: str | list[dict[str, Any]] = prompt
+        else:
+            payloads: list[dict[str, Any]] = []
+            async for item in prompt:
+                payloads.append(dict(item))
+            normalized_prompt = payloads
+
+        message_queue: queue.Queue[Any] = queue.Queue()
+        self._message_queue = message_queue
+
+        async def _query_in_thread() -> None:
+            if self._stream_task is not None and not self._stream_task.done():
+                raise RuntimeError("Previous Claude stream is still running.")
+
+            async def _stream_messages() -> None:
+                try:
+                    async for message in self._client.receive_response():
+                        message_queue.put(message)
+                except Exception as exc:  # noqa: BLE001
+                    message_queue.put(_StreamFailure(exc))
+                finally:
+                    message_queue.put(_StreamEnd())
+
+            self._stream_task = asyncio.create_task(_stream_messages())
+            try:
+                if isinstance(normalized_prompt, str):
+                    await self._client.query(normalized_prompt, session_id=session_id)
+                else:
+
+                    async def _prompt_iter() -> AsyncIterator[dict[str, Any]]:
+                        for payload in normalized_prompt:
+                            yield payload
+
+                    await self._client.query(_prompt_iter(), session_id=session_id)
+            except Exception as exc:  # noqa: BLE001
+                if self._stream_task is not None:
+                    self._stream_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await self._stream_task
+                message_queue.put(_StreamFailure(exc))
+                message_queue.put(_StreamEnd())
+                raise
+
+        await self._run_in_thread_loop(_query_in_thread())
+
+    async def _drain_stream(self) -> AsyncIterator[Any]:
+        if self._message_queue is None:
+            raise RuntimeError("No Claude response stream is available.")
+
+        try:
+            while True:
+                item = await asyncio.to_thread(self._message_queue.get)
+                if isinstance(item, _StreamEnd):
+                    break
+                if isinstance(item, _StreamFailure):
+                    raise item.error
+                yield item
+        finally:
+            self._message_queue = None
+
+    def receive_response(self) -> AsyncIterator[Any]:
+        return self._drain_stream()
+
+    async def interrupt(self) -> None:
+        if not self._connected:
+            return
+        await self._run_in_thread_loop(self._client.interrupt())
+
+    async def disconnect(self) -> None:
+        if self._thread is None:
+            self._connected = False
+            self._message_queue = None
+            return
+
+        async def _disconnect_in_thread() -> None:
+            if self._stream_task is not None and not self._stream_task.done():
+                self._stream_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._stream_task
+            await self._client.disconnect()
+
+        with contextlib.suppress(Exception):
+            await self._run_in_thread_loop(_disconnect_in_thread())
+
+        self._connected = False
+        self._message_queue = None
+        self._stream_task = None
+
+        loop = self._thread_loop
+        thread = self._thread
+        if loop is not None and loop.is_running():
+            loop.call_soon_threadsafe(loop.stop)
+        if thread is not None:
+            await asyncio.to_thread(thread.join, 2)
+        self._thread = None
 
 
 @dataclass
@@ -265,10 +455,10 @@ def _create_claude_session_client(state: ConnectionState) -> ClaudeSessionClient
         cwd=state.workspace_root,
         settings=str(auth.settings_path) if auth.settings_path else None,
         env=auth.env,
-        cli_path=state.settings.claude_cli_path,
+        cli_path=resolve_claude_cli_path(state.settings.claude_cli_path),
         include_partial_messages=True,
     )
-    return ClaudeSDKClient(options=options)
+    return ThreadedClaudeSessionClient(options=options)
 
 
 async def _send_envelope(
@@ -915,6 +1105,8 @@ async def _process_turn(state: ConnectionState, command: TurnCommand) -> None:
                     continue
 
         elif isinstance(sdk_message, SystemMessage):
+            if sdk_message.subtype.strip().lower() in FILTERED_SYSTEM_MESSAGE_SUBTYPES:
+                continue
             _, message_sequence = _persist_message(
                 conversation_id=state.conversation_id,
                 role=MessageRole.SYSTEM,
@@ -1380,9 +1572,10 @@ async def _shutdown_state(state: ConnectionState, *, close_socket: bool, reason:
         state.worker_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await state.worker_task
-    if state.sdk_client is not None and state.sdk_connected:
+    if state.sdk_client is not None:
         with contextlib.suppress(Exception):
             await state.sdk_client.disconnect()
+        state.sdk_connected = False
     with session_scope() as session:
         SessionRepository(session).disconnect(state.session_id)
     if close_socket:
