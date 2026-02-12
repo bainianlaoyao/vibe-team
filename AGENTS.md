@@ -41,3 +41,53 @@ uv run pytest
 # 统一入口
 make quality
 ```
+
+## Git Worktree 工作流规范
+
+### 正确流程
+
+使用 worktree 进行隔离开发时，必须严格遵守以下流程：
+
+```bash
+# 1. 创建 worktree（在主仓库执行）
+git worktree add ../<worktree-name> <branch-name>
+
+# 2. 进入 worktree 目录（关键步骤！）
+cd ../<worktree-name>
+
+# 3. 在 worktree 中进行所有开发工作
+# - 修改代码
+# - 运行测试
+# - 提交更改
+git add .
+git commit -m "..."
+
+# 4. 回到主仓库进行合并
+cd ../<main-repo>
+git merge <branch-name>
+```
+
+### 常见错误
+
+❌ **错误**：创建 worktree 后未切换目录，仍在主仓库中提交
+```bash
+git worktree add ../work refactor/feature
+git add .        # ❌ 在主仓库执行
+git commit       # ❌ 提交到了主仓库
+```
+
+✅ **正确**：进入 worktree 目录后再进行所有操作
+```bash
+git worktree add ../work refactor/feature
+cd ../work       # ✅ 切换到 worktree
+git add .        # ✅ 在 worktree 中执行
+git commit       # ✅ 提交到 worktree 分支
+```
+
+### 验证方法
+
+执行任何 git 操作前，先确认当前目录：
+```bash
+pwd                    # 应该显示 worktree 路径
+git branch --show-current  # 应该显示工作分支
+```
