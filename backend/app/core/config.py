@@ -9,9 +9,10 @@ from typing import Literal
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
-# 加载 .env 文件（相对于 backend 目录）
-_env_path = Path(__file__).resolve().parent.parent.parent / ".env"
-load_dotenv(_env_path)
+# 加载 .env 文件（从 PROJECT_ROOT 读取，默认为 play_ground）
+_default_project_root = Path(__file__).resolve().parent.parent / "play_ground"
+_env_project_root = Path(os.getenv("PROJECT_ROOT", _default_project_root))
+load_dotenv(_env_project_root / ".env")
 
 Environment = Literal["development", "test", "production"]
 LogFormat = Literal["json", "console"]
@@ -29,7 +30,6 @@ class Settings(BaseModel):
     claude_settings_path: str | None = Field(default=None)
     claude_cli_path: str | None = Field(default=None)
     claude_default_max_turns: int = Field(default=8)
-    chat_protocol_v2_enabled: bool = Field(default=False)
     chat_input_timeout_s: int = Field(default=600, ge=1)
     tasks_md_sync_enabled: bool = Field(default=False)
     tasks_md_output_path: str = Field(default="../tasks.md")
@@ -176,10 +176,6 @@ def load_settings() -> Settings:
         claude_settings_path=os.getenv("CLAUDE_SETTINGS_PATH"),
         claude_cli_path=os.getenv("CLAUDE_CLI_PATH"),
         claude_default_max_turns=int(os.getenv("CLAUDE_DEFAULT_MAX_TURNS", "8")),
-        chat_protocol_v2_enabled=_to_bool(
-            os.getenv("CHAT_PROTOCOL_V2_ENABLED"),
-            default=False,
-        ),
         chat_input_timeout_s=int(os.getenv("CHAT_INPUT_TIMEOUT_S", "600")),
         tasks_md_sync_enabled=_to_bool(os.getenv("TASKS_MD_SYNC_ENABLED"), default=False),
         tasks_md_output_path=os.getenv("TASKS_MD_OUTPUT_PATH", "../tasks.md"),
