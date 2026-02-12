@@ -1,0 +1,1 @@
+You are responsible for backend API and state management of a separated snake game.

@@ -9,9 +9,61 @@ from typing import Literal
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
-# 加载 .env 文件（相对于 backend 目录）
-_env_path = Path(__file__).resolve().parent.parent.parent / ".env"
-load_dotenv(_env_path)
+
+class ConfigurationError(Exception):
+    """配置错误"""
+    pass
+
+
+def _get_project_root() -> Path:
+    """获取项目根目录，失败则报错"""
+    # 1. 优先从环境变量读取
+    if project_root := os.getenv("PROJECT_ROOT"):
+        path = Path(project_root)
+        if path.exists() and path.is_dir():
+            return path
+        raise ConfigurationError(
+            f"PROJECT_ROOT 指向的目录不存在: {project_root}"
+        )
+    
+    # 2. 尝试从当前工作目录推导
+    cwd = Path.cwd()
+    if (cwd / ".beebeebrain").exists():
+        return cwd
+    
+    # 3. 尝试默认的 play_ground 位置（在 beebebrain 目录）
+    # config.py -> app/core -> app -> backend -> beebeebrain/play_ground
+    default = Path(__file__).resolve().parent.parent.parent.parent / "play_ground"
+    if default.exists():
+        return default
+    
+    raise ConfigurationError(
+        "无法确定项目根目录。请设置 PROJECT_ROOT 环境变量，"
+        "或在项目目录运行（包含 .beebeebrain 目录）。"
+    )
+
+
+def _load_env_file(project_root: Path) -> None:
+    """加载项目级 .env 文件，不存在则报错"""
+    env_file = project_root / ".env"
+    
+    if not env_file.exists():
+        raise ConfigurationError(
+            f"项目配置文件不存在: {env_file}\n"
+            f"请在项目目录创建 .env 文件:\n"
+            f"  cd {project_root}\n"
+            f"  cp .env.example .env\n"
+            f"  # 编辑 .env 文件"
+        )
+    
+    load_dotenv(env_file, override=True)
+
+
+# 获取项目根目录
+PROJECT_ROOT = _get_project_root()
+
+# 加载项目级配置（必须存在）
+_load_env_file(PROJECT_ROOT)
 
 Environment = Literal["development", "test", "production"]
 LogFormat = Literal["json", "console"]
@@ -131,22 +183,14 @@ def load_settings() -> Settings:
     default_db_auto_init = app_env == "development"
     default_db_auto_seed = app_env == "development"
 
-    # 处理 PROJECT_ROOT
-    project_root_str = os.getenv("PROJECT_ROOT")
-    project_root: Path | None = None
-
-    if project_root_str:
-        project_root = Path(project_root_str)
-        if not project_root.exists():
-            raise ValueError(f"PROJECT_ROOT directory does not exist: {project_root}")
-        if not project_root.is_dir():
-            raise ValueError(f"PROJECT_ROOT is not a directory: {project_root}")
-    elif not default_testing:
-        # 非测试模式下必须设置 PROJECT_ROOT
-        raise ValueError(
-            "PROJECT_ROOT environment variable is required. "
-            "Please set it to your project directory path."
-        )
+    # 使用全局 PROJECT_ROOT（已在模块加载时确定）
+    project_root: Path | None = PROJECT_ROOT
+    
+    # 验证 PROJECT_ROOT 有效
+    if not project_root.exists():
+        raise ValueError(f"PROJECT_ROOT directory does not exist: {project_root}")
+    if not project_root.is_dir():
+        raise ValueError(f"PROJECT_ROOT is not a directory: {project_root}")
 
     # 确定数据库 URL
     database_url = os.getenv("DATABASE_URL")

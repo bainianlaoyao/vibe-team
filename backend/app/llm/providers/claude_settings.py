@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,6 +20,18 @@ AUTH_ENV_KEYS: tuple[str, ...] = (
 class ClaudeSettingsAuth:
     settings_path: Path | None
     env: dict[str, str]
+
+
+def resolve_claude_cli_path(cli_path_override: str | Path | None = None) -> str | Path | None:
+    if isinstance(cli_path_override, Path):
+        return cli_path_override
+    if isinstance(cli_path_override, str):
+        normalized = cli_path_override.strip()
+        if normalized:
+            return normalized
+    if sys.platform == "win32":
+        return "claude.cmd"
+    return None
 
 
 def resolve_claude_settings_path(path_override: str | Path | None = None) -> Path | None:

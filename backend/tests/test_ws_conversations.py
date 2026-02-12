@@ -4,6 +4,7 @@ from collections.abc import AsyncIterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
+from unittest.mock import MagicMock
 
 import pytest
 from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock, ToolUseBlock
@@ -12,7 +13,7 @@ from pytest import MonkeyPatch
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, SQLModel, select
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.db.engine import create_engine_from_url, dispose_engine
 from app.db.enums import TaskStatus
 from app.db.models import Agent, Conversation, Event, Project, Task
@@ -107,6 +108,43 @@ def _receive_until(websocket: Any, event_type: str, *, limit: int = 20) -> dict[
         if data["type"] == event_type:
             return data
     raise AssertionError(f"Did not receive event {event_type} within {limit} messages")
+
+
+def test_create_claude_session_client_uses_windows_default_cli_path(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+    from app.api import ws_conversations as ws_api
+
+    def fake_sdk_client(*, options: Any) -> Any:
+        captured["cli_path"] = options.cli_path
+        return object()
+
+    monkeypatch.setattr("app.llm.providers.claude_settings.sys.platform", "win32")
+    monkeypatch.setattr(ws_api, "ClaudeSDKClient", fake_sdk_client)
+    monkeypatch.setattr(
+        ws_api,
+        "resolve_claude_auth",
+        lambda settings_path_override=None: MagicMock(settings_path=None, env={}),
+    )
+
+    state = ws_api.ConnectionState(
+        websocket=cast(Any, MagicMock()),
+        settings=Settings(),
+        conversation_id=1,
+        client_id="client",
+        session_id=1,
+        project_id=1,
+        agent_id=1,
+        task_id=None,
+        model_provider="anthropic",
+        model_name="claude-sonnet-4-5",
+        system_prompt="",
+        workspace_root=None,
+    )
+
+    _ = ws_api._create_claude_session_client(state)
+    assert captured["cli_path"] == "claude.cmd"
 
 
 @pytest.fixture

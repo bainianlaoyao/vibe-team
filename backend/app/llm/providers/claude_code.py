@@ -32,7 +32,7 @@ from app.llm.contracts import (
     StreamEventType,
 )
 from app.llm.errors import LLMErrorCode, LLMProviderError
-from app.llm.providers.claude_settings import resolve_claude_auth
+from app.llm.providers.claude_settings import resolve_claude_auth, resolve_claude_cli_path
 
 CLAUDE_PROVIDER_NAME = "claude_code"
 _COST_SCALE = Decimal("0.0001")
@@ -60,7 +60,7 @@ class ClaudeCodeAdapter(LLMClient):
         client_factory: ClaudeClientFactory | None = None,
     ) -> None:
         self._settings_path = settings_path
-        self._cli_path = cli_path
+        self._cli_path = resolve_claude_cli_path(cli_path)
         self._default_max_turns = default_max_turns
         self._client_factory = client_factory or (lambda options: ClaudeSDKClient(options=options))
 

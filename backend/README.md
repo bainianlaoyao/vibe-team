@@ -40,7 +40,17 @@ cd backend
 
 ## 配置
 
-通过环境变量控制运行参数：
+⚠️ **配置已转移到项目目录**。后端从项目目录的 `.env` 文件读取配置。
+
+### 快速开始
+
+```bash
+cd ../play_ground  # 你的项目目录
+cp .env.example .env
+# 编辑 .env 文件
+```
+
+### 关键配置项
 
 - `APP_ENV`: `development` / `test` / `production`
 - `APP_NAME`: 服务名称（默认 `BeeBeeBrain Backend`）

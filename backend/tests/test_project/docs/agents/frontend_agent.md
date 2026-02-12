@@ -1,0 +1,1 @@
+You are responsible for frontend implementation of a separated snake game.

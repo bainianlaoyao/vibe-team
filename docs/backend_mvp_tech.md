@@ -28,7 +28,81 @@
 4. 可恢复执行：每次运行有 `run_id`，失败后可基于持久化状态重试。
 5. 先可观测再扩展：关键路径必须有日志、指标和告警点，避免“黑盒 Agent”。
 
-## 2.5 项目现有知识与关键概念（避免重复搜索）
+## 2.5 配置管理（项目级配置）
+
+**⚠️ BREAKING CHANGE**：配置已从程序文件夹转移到项目文件夹。
+
+### 配置加载机制
+
+后端**强制**从项目目录的 `.env` 文件读取配置：
+
+1. **配置位置**：`{PROJECT_ROOT}/.env`
+2. **加载顺序**：
+   - 优先从 `PROJECT_ROOT` 环境变量指定的目录
+   - 其次尝试从当前工作目录（如果包含 `.beebeebrain` 目录）
+   - 最后尝试默认的 `play_ground` 目录
+3. **强制要求**：如果 `.env` 文件不存在，后端**启动失败**并显示错误信息
+
+### 配置分类
+
+所有配置集中到项目目录的 `.env`，按功能分区：
+
+```bash
+# ============================================
+# 通用配置（前后端共享）
+# ============================================
+APP_ENV=development          # development | test | production
+# PROJECT_ROOT=.             # 可选：项目根目录（程序自动推导，通常无需设置）
+LOG_LEVEL=INFO               # DEBUG | INFO | WARNING | ERROR | CRITICAL
+DEBUG=true                   # true | false
+
+# ============================================
+# 后端服务配置
+# ============================================
+HOST=127.0.0.1
+PORT=8000
+DATABASE_URL=               # 可选，默认使用 {PROJECT_ROOT}/.beebeebrain/beebeebrain.db
+DB_AUTO_INIT=true           # 开发环境自动初始化
+DB_AUTO_SEED=true           # 开发环境自动种子数据
+CORS_ALLOW_ORIGINS=...
+CLAUDE_DEFAULT_MAX_TURNS=8
+TASKS_MD_SYNC_ENABLED=false
+...
+
+# ============================================
+# 前端配置
+# ============================================
+API_BASE_URL=http://127.0.0.1:8000/api/v1
+PROJECT_ID=1
+FRONTEND_DEBUG=true
+```
+
+### 快速开始
+
+```bash
+# 1. 进入项目目录
+cd play_ground  # 或你的项目目录
+
+# 2. 从模板创建配置
+cp .env.example .env
+
+# 3. 编辑配置
+vim .env  # 或你喜欢的编辑器
+
+# 4. 启动后端
+cd ../backend
+uv run uvicorn app.main:app --reload
+```
+
+### 向后兼容说明
+
+- **不再支持**：程序根目录的 `.env` 文件（已删除）
+- **不再支持**：`backend/.env` 文件（已删除）
+- **回滚方案**：如需要恢复，从 git 历史恢复被删除的 .env 文件
+
+---
+
+## 2.6 项目现有知识与关键概念（避免重复搜索）
 
 1. 事件系统（Events）
 - 事件落库：`events` 表字段含 `event_type`、`payload_json`、`created_at`、`trace_id`。

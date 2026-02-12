@@ -2,6 +2,7 @@
 
 import asyncio
 from decimal import Decimal
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -158,6 +159,53 @@ def test_protocol_error_no_result(adapter, mock_client, sample_request):
             assert "without ResultMessage" in exc.value.message
 
     asyncio.run(run_test())
+
+
+def test_generate_uses_windows_default_cli_path_when_not_configured(monkeypatch):
+    captured: dict[str, Any] = {}
+    client = MagicMock()
+    client.query = AsyncMock()
+    client.receive_response = MagicMock()
+
+    async def mock_stream():
+        yield AssistantMessage(
+            content=[TextBlock(text="ok")],
+            model="claude-sonnet-4-5",
+        )
+        yield ResultMessage(
+            subtype="completed",
+            duration_ms=15,
+            duration_api_ms=10,
+            is_error=False,
+            num_turns=1,
+            session_id="session-1",
+            result="ok",
+            usage={"input_tokens": 1, "output_tokens": 1},
+            total_cost_usd=0.0001,
+        )
+
+    client.receive_response.return_value.__aiter__.side_effect = mock_stream
+
+    def factory(options):
+        captured["cli_path"] = options.cli_path
+        return AsyncMockContextManager(client)
+
+    monkeypatch.setattr("app.llm.providers.claude_settings.sys.platform", "win32")
+    adapter = ClaudeCodeAdapter(client_factory=factory)
+    request = LLMRequest(
+        provider=CLAUDE_PROVIDER_NAME,
+        model="claude-sonnet-4-5",
+        messages=[LLMMessage(role=LLMRole.USER, content="Hello")],
+        session_id="test-session",
+    )
+
+    async def run_test() -> None:
+        with patch("app.llm.providers.claude_code.resolve_claude_auth") as mock_auth:
+            mock_auth.return_value = MagicMock(settings_path=None, env={})
+            await adapter.generate(request)
+
+    asyncio.run(run_test())
+    assert captured["cli_path"] == "claude.cmd"
 
 
 def test_extract_last_user_prompt():

@@ -55,3 +55,4 @@ play_ground
 # Project-specific data directories
 .beebeebrain/
 */.beebeebrain/
+.sisyphus

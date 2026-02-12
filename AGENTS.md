@@ -20,6 +20,7 @@
 16. 未完全完成的能力使用 feature flag（默认关闭）后再合并，不通过长期分支等待“大版本完成”。
 17. 涉及数据库迁移时采用向后兼容的 expand/contract 策略，避免破坏性迁移直接进入 `main`。
 18. 每个 worktree 运行时使用独立本地配置（如 `PORT`、`DATABASE_URL`、临时目录），避免并行开发时互相干扰。
+19. 每次总结最后加"喵
 
 ## 推荐命令（后端）
 
@@ -70,6 +71,7 @@ git merge <branch-name>
 ### 常见错误
 
 ❌ **错误**：创建 worktree 后未切换目录，仍在主仓库中提交
+
 ```bash
 git worktree add ../work refactor/feature
 git add .        # ❌ 在主仓库执行
@@ -77,6 +79,7 @@ git commit       # ❌ 提交到了主仓库
 ```
 
 ✅ **正确**：进入 worktree 目录后再进行所有操作
+
 ```bash
 git worktree add ../work refactor/feature
 cd ../work       # ✅ 切换到 worktree
@@ -87,6 +90,7 @@ git commit       # ✅ 提交到 worktree 分支
 ### 验证方法
 
 执行任何 git 操作前，先确认当前目录：
+
 ```bash
 pwd                    # 应该显示 worktree 路径
 git branch --show-current  # 应该显示工作分支
