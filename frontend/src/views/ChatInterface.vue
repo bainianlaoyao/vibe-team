@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted, nextTick, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { useChatStore } from '@/stores/chat';
 import MessageItem from '@/components/chat/MessageItem.vue';
 import ChatInput from '@/components/chat/ChatInput.vue';
 
 const store = useChatStore();
+const route = useRoute();
 const messagesEndRef = ref<HTMLElement | null>(null);
+const initialized = ref(false);
 const connectionLabel = computed(() =>
   store.socketState === 'connected' ? 'Connected' : `WS ${store.socketState}`,
 );
@@ -67,10 +70,40 @@ function handleCreateConversation() {
   void store.createConversationForSelectedAgent();
 }
 
-onMounted(() => {
-  void store.bootstrapConversation();
+function parsePositiveIntQuery(raw: unknown): number | null {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof value !== 'string') return null;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+async function syncConversationFromRoute(): Promise<void> {
+  const agentId = parsePositiveIntQuery(route.query.agent);
+  const conversationId = parsePositiveIntQuery(route.query.conversation);
+
+  if (agentId !== null) {
+    await store.selectAgent(agentId, conversationId !== null);
+  }
+  if (conversationId !== null) {
+    await store.selectConversation(conversationId);
+  }
+}
+
+onMounted(async () => {
+  await store.bootstrapConversation();
+  await syncConversationFromRoute();
+  initialized.value = true;
   scrollToBottom();
 });
+
+watch(
+  () => [route.query.agent, route.query.conversation],
+  () => {
+    if (!initialized.value) return;
+    void syncConversationFromRoute();
+  },
+);
 
 onUnmounted(() => {
   store.resetConnection();

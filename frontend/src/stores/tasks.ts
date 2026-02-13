@@ -1,6 +1,11 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import { ApiRequestError, api, type BackendTask } from '../services/api';
+import {
+  ApiRequestError,
+  api,
+  type BackendProjectUpdate,
+  type BackendTask,
+} from '../services/api';
 import type { DashboardStats, Task, TaskPriority, TaskStatus } from '../types';
 
 function mapTaskStatus(status: string): TaskStatus {
@@ -78,6 +83,23 @@ function toUiTask(row: BackendTask): Task {
   };
 }
 
+function collectChangedFilesByTask(updates: BackendProjectUpdate[]): Map<number, string[]> {
+  const byTask = new Map<number, Set<string>>();
+  for (const update of updates) {
+    if (update.task_id === null || update.files_changed.length === 0) {
+      continue;
+    }
+    const nextSet = byTask.get(update.task_id) ?? new Set<string>();
+    for (const filePath of update.files_changed) {
+      nextSet.add(filePath);
+    }
+    byTask.set(update.task_id, nextSet);
+  }
+  return new Map<number, string[]>(
+    [...byTask.entries()].map(([taskId, files]) => [taskId, [...files]]),
+  );
+}
+
 export const useTasksStore = defineStore('tasks', () => {
   const projectId = ref<number>(api.getProjectId());
   const tasks = ref<Task[]>([]);
@@ -93,9 +115,17 @@ export const useTasksStore = defineStore('tasks', () => {
     loading.value = true;
     error.value = null;
     try {
-      const rows = await api.listTasks(projectId.value);
-      tasks.value = rows.map(toUiTask);
-      const statsRow = await api.getTaskStats(projectId.value);
+      const [rows, statsRow, updates] = await Promise.all([
+        api.listTasks(projectId.value),
+        api.getTaskStats(projectId.value),
+        api.listUpdates(projectId.value, 100).catch(() => [] as BackendProjectUpdate[]),
+      ]);
+      const changedFilesByTask = collectChangedFilesByTask(updates);
+      tasks.value = rows.map(row => {
+        const task = toUiTask(row);
+        task.changedFiles = changedFilesByTask.get(row.id) ?? [];
+        return task;
+      });
       stats.value = statsRow;
     } catch (cause) {
       const apiError = cause instanceof ApiRequestError ? cause : null;

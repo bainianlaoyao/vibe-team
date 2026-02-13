@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Conflict } from '../types/demo'
 
-const props = defineProps<{
+defineProps<{
   show: boolean
   conflict: Conflict | null
 }>()

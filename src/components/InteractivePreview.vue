@@ -102,7 +102,7 @@ const previewContent = computed(() => {
 
           <div class="grid grid-cols-3 gap-4 mb-6">
             <div
-              v-for="(stat, i) in ['Revenue', 'Users', 'Conversion']"
+              v-for="stat in ['Revenue', 'Users', 'Conversion']"
               :key="stat"
               class="bg-gray-50 rounded-lg p-4 hover:bg-electric-indigo/5 transition-colors cursor-pointer border border-transparent hover:border-electric-indigo/20"
               @click="(e) => handleElementClick(e, `${stat} Card`)"

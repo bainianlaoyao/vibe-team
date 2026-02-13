@@ -6,7 +6,7 @@ import { useDemoEngine } from '../composables/useDemoEngine'
 import { demoScript } from '../data/demo-script'
 import type { Agent, PreviewState, Tab } from '../types/demo'
 
-const props = defineProps<{
+defineProps<{
   projectName: string
 }>()
 
@@ -83,7 +83,7 @@ const updateAgentStatus = (agentId: string, status: any, log: string) => {
   }
 }
 
-const addArtifact = (agentId: string, path: string, preview: string) => {
+const addArtifact = (agentId: string, path: string, _preview: string) => {
   const agent = agents.value.find(a => a.id === agentId)
   if (agent) {
     const name = path.split('/').pop() || path
@@ -174,6 +174,7 @@ onMounted(() => {
 
 // Computed
 const overallProgress = computed(() => getProgress())
+const tabs: Tab[] = ['preview', 'terminal', 'diff']
 </script>
 
 <template>
@@ -288,7 +289,7 @@ const overallProgress = computed(() => getProgress())
         <!-- Tabs -->
         <div class="flex border-b border-white/10">
           <button
-            v-for="tab in ['preview', 'terminal', 'diff']"
+            v-for="tab in tabs"
             :key="tab"
             @click="activeTab = tab"
             class="px-6 py-3 text-sm font-medium capitalize transition-colors"

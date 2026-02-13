@@ -1,17 +1,22 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { PhArrowSquareOut, PhCaretDown, PhCaretRight, PhGitDiff } from '@phosphor-icons/vue';
+import { useRouter } from 'vue-router';
 import Avatar from '../components/Avatar.vue';
 import TaskCreateModal from '../components/TaskCreateModal.vue';
 import { useAgentsStore } from '../stores/agents';
 import { useTasksStore } from '../stores/tasks';
+import { ApiRequestError, api } from '../services/api';
 import type { Agent, RiskFlag, Task, TaskStatus } from '../types';
 
+const router = useRouter();
 const agentsStore = useAgentsStore();
 const tasksStore = useTasksStore();
 const createModalOpen = ref<boolean>(false);
 const creatingTask = ref<boolean>(false);
 const createTaskError = ref<string | null>(null);
+const launchTaskError = ref<string | null>(null);
+const launchingTaskId = ref<string | null>(null);
 
 const statusMeta: Record<TaskStatus, { label: string; dot: string; text: string }> = {
   todo: { label: 'To do', dot: 'bg-primary-300 shadow-[0_0_0_4px_rgba(154,152,146,0.15)]', text: 'text-text-tertiary' },
@@ -87,6 +92,60 @@ const closeCreateModal = () => {
   createModalOpen.value = false;
 };
 
+const resolveAssigneeApiId = (task: Task): number | null => {
+  if (!task.assignedTo) {
+    return null;
+  }
+  return agentsStore.byId[task.assignedTo]?.apiId ?? null;
+};
+
+const buildConversationTitle = (task: Task): string => {
+  const taskPrefix = task.apiId ? `Task #${task.apiId}` : task.id;
+  return `${taskPrefix}: ${task.title}`;
+};
+
+const launchTaskConversation = async (task: Task) => {
+  launchTaskError.value = null;
+  if (!task.apiId) {
+    launchTaskError.value = 'Missing apiId for selected task.';
+    return;
+  }
+
+  const assigneeApiId = resolveAssigneeApiId(task);
+  if (!assigneeApiId) {
+    launchTaskError.value = 'Task must be assigned to an agent before launching a conversation.';
+    return;
+  }
+
+  launchingTaskId.value = task.id;
+  try {
+    const existing = await api.listConversations(tasksStore.projectId, assigneeApiId, task.apiId);
+    const target =
+      existing[0] ??
+      (await api.createConversation({
+        project_id: tasksStore.projectId,
+        agent_id: assigneeApiId,
+        task_id: task.apiId,
+        title: buildConversationTitle(task),
+      }));
+
+    await router.push({
+      path: '/chat',
+      query: {
+        agent: String(assigneeApiId),
+        conversation: String(target.id),
+      },
+    });
+  } catch (cause) {
+    const apiError = cause instanceof ApiRequestError ? cause : null;
+    launchTaskError.value = apiError
+      ? `${apiError.code}: ${apiError.message}`
+      : 'Failed to launch task conversation.';
+  } finally {
+    launchingTaskId.value = null;
+  }
+};
+
 const handleCreateTask = async (payload: {
   title: string;
   description: string;
@@ -130,6 +189,7 @@ onMounted(async () => {
     <div v-if="tasksStore.loading" class="text-sm text-text-tertiary">Loading tasks...</div>
     <div v-else-if="tasksStore.error" class="text-sm text-error">{{ tasksStore.error }}</div>
     <div v-else class="space-y-6">
+      <div v-if="launchTaskError" class="text-sm text-error">{{ launchTaskError }}</div>
       <div v-for="section in agentSections" :key="section.agentId" class="mb-6">
         <div class="flex items-center justify-between bg-bg-elevated px-4 py-1.5 rounded-t-lg border border-border">
           <button class="flex items-center gap-3 flex-1 text-left" @click="toggleAgent(section.agentId)">
@@ -207,7 +267,9 @@ onMounted(async () => {
                     </button>
                     <button
                       class="h-7 w-7 border border-border/70 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-tertiary flex items-center justify-center"
-                      aria-label="Open task details"
+                      aria-label="Launch task conversation"
+                      :disabled="launchingTaskId === task.id || !task.assignedTo"
+                      @click="launchTaskConversation(task)"
                     >
                       <PhArrowSquareOut :size="14" />
                     </button>

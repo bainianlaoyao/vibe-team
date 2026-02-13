@@ -848,12 +848,13 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  async function selectAgent(agentId: number): Promise<void> {
+  async function selectAgent(agentId: number, forceReload = false): Promise<void> {
     if (!agents.value.some(agent => agent.id === agentId)) {
       error.value = 'Selected agent does not exist.';
       return;
     }
     if (
+      !forceReload &&
       selectedAgentId.value === agentId &&
       conversations.value.length > 0 &&
       currentConversationId.value !== null
@@ -881,9 +882,24 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function selectConversation(conversationId: number): Promise<void> {
-    const target = conversations.value.find(item => item.id === conversationId);
+    let target = conversations.value.find(item => item.id === conversationId) ?? null;
     if (!target) {
-      error.value = 'Selected conversation does not exist for this agent.';
+      const activeAgentId = selectedAgentId.value;
+      if (activeAgentId !== null) {
+        try {
+          await refreshConversationsForAgent(activeAgentId, api.getProjectId());
+        } catch (cause) {
+          const apiError = cause instanceof ApiRequestError ? cause : null;
+          error.value = apiError
+            ? `${apiError.code}: ${apiError.message}`
+            : 'Failed to refresh conversation list.';
+          return;
+        }
+        target = conversations.value.find(item => item.id === conversationId) ?? null;
+      }
+    }
+    if (!target) {
+      error.value = 'Selected conversation does not exist in current agent list.';
       return;
     }
     if (currentConversationId.value === conversationId) {
