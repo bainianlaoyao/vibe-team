@@ -65,7 +65,7 @@ def _status_to_code(status_code: int) -> str:
         status.HTTP_403_FORBIDDEN: "FORBIDDEN",
         status.HTTP_404_NOT_FOUND: "NOT_FOUND",
         status.HTTP_409_CONFLICT: "CONFLICT",
-        status.HTTP_422_UNPROCESSABLE_ENTITY: "VALIDATION_ERROR",
+        status.HTTP_422_UNPROCESSABLE_CONTENT: "VALIDATION_ERROR",
         status.HTTP_500_INTERNAL_SERVER_ERROR: "INTERNAL_ERROR",
     }
     return mapping.get(status_code, "UNKNOWN_ERROR")
@@ -118,7 +118,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(RequestValidationError)
     async def handle_validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
         return build_error_response(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "VALIDATION_ERROR",
             "Request validation failed.",
             issues=_extract_validation_issues(exc),

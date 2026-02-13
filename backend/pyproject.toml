@@ -26,6 +26,10 @@ packages = ["app"]
 [tool.pytest.ini_options]
 addopts = "-q --cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=70"
 testpaths = ["tests"]
+filterwarnings = [
+  "error:.*HTTP_422_UNPROCESSABLE_ENTITY.*:DeprecationWarning",
+  "error:.*unclosed transport.*:ResourceWarning",
+]
 
 [tool.black]
 line-length = 100

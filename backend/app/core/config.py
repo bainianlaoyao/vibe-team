@@ -9,10 +9,8 @@ from typing import Literal
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
-# 加载 .env 文件（从 PROJECT_ROOT 读取，默认为 play_ground）
-_default_project_root = Path(__file__).resolve().parent.parent / "play_ground"
-_env_project_root = Path(os.getenv("PROJECT_ROOT", _default_project_root))
-load_dotenv(_env_project_root / ".env")
+# 加载 .env 文件（按当前工作目录向上查找）
+load_dotenv()
 
 Environment = Literal["development", "test", "production"]
 LogFormat = Literal["json", "console"]
@@ -123,44 +121,32 @@ def load_settings() -> Settings:
     default_db_auto_init = app_env == "development"
     default_db_auto_seed = app_env == "development"
 
-    # 处理 PROJECT_ROOT
     project_root_str = os.getenv("PROJECT_ROOT")
-    project_root: Path | None = None
+    database_url_env = os.getenv("DATABASE_URL")
 
+    if project_root_str and database_url_env:
+        raise ValueError(
+            "PROJECT_ROOT and DATABASE_URL are mutually exclusive. " "Set exactly one of them."
+        )
+
+    project_root: Path | None = None
     if project_root_str:
         project_root = Path(project_root_str)
         if not project_root.exists():
             raise ValueError(f"PROJECT_ROOT directory does not exist: {project_root}")
         if not project_root.is_dir():
             raise ValueError(f"PROJECT_ROOT is not a directory: {project_root}")
-    elif not default_testing:
-        # 非测试模式下必须设置 PROJECT_ROOT
-        raise ValueError(
-            "PROJECT_ROOT environment variable is required. "
-            "Please set it to your project directory path."
-        )
 
-    # 确定数据库 URL
-    database_url = os.getenv("DATABASE_URL")
-    if database_url:
-        # 如果显式设置了 DATABASE_URL，优先使用它（但打印警告）
-        if project_root:
-            import warnings
-
-            warnings.warn(
-                "Both DATABASE_URL and PROJECT_ROOT are set. "
-                f"Using DATABASE_URL: {database_url}",
-                UserWarning,
-                stacklevel=2,
-            )
-    elif project_root:
-        # 从 PROJECT_ROOT 推导数据库路径
+    database_url = database_url_env
+    if project_root is not None:
         db_path = project_root / ".beebeebrain" / "beebeebrain.db"
-        database_url = f"sqlite:///{db_path}"
-    else:
-        # 测试模式下的默认路径
-        database_url = (
-            "sqlite:///./beebeebrain_test.db" if app_env == "test" else "sqlite:///./beebeebrain.db"
+        database_url = f"sqlite:///{db_path.as_posix()}"
+
+    if database_url is None:
+        raise ValueError(
+            "Either PROJECT_ROOT or DATABASE_URL must be set. "
+            "Set PROJECT_ROOT to derive SQLite path automatically, "
+            "or set DATABASE_URL explicitly."
         )
 
     return Settings(

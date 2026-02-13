@@ -165,7 +165,7 @@ def _transition_task_status(
         ensure_status_transition(previous_status, target_status)
     except InvalidTaskTransitionError as exc:
         raise ApiException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "INVALID_TASK_TRANSITION",
             str(exc),
         ) from exc
@@ -259,7 +259,7 @@ def _append_tool_audit_event(
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
             status.HTTP_409_CONFLICT,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )
@@ -382,7 +382,7 @@ def finish_task(
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
             status.HTTP_409_CONFLICT,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )
@@ -505,7 +505,7 @@ def block_task(
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
             status.HTTP_409_CONFLICT,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )

@@ -79,7 +79,7 @@ def _resolve_project_and_task(session: Session, comment: Comment) -> tuple[int, 
         return task.project_id, task.id
     if comment.document_id is None:
         raise ApiException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "INVALID_COMMENT",
             "Comment must reference a task or document.",
         )
@@ -152,7 +152,7 @@ def _commit_or_conflict(session: Session) -> None:
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
             status.HTTP_409_CONFLICT,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             status.HTTP_503_SERVICE_UNAVAILABLE,
         ),
     ),

@@ -160,6 +160,70 @@ def test_shutdown_state_disconnects_sdk_client_even_when_not_connected(
     assert state.sdk_connected is False
 
 
+def test_ensure_sdk_connected_cleans_up_failed_connect(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    from app.api import ws_conversations as ws_api
+
+    class FailingConnectClient:
+        def __init__(self) -> None:
+            self.disconnect_calls = 0
+
+        async def connect(self, prompt: str | AsyncIterable[dict[str, Any]] | None = None) -> None:
+            _ = prompt
+            raise RuntimeError("connect failed")
+
+        async def query(
+            self,
+            prompt: str | AsyncIterable[dict[str, Any]],
+            session_id: str = "default",
+        ) -> None:
+            _ = prompt
+            _ = session_id
+            raise AssertionError("query should not be called")
+
+        def receive_response(self) -> Any:
+            raise AssertionError("receive_response should not be called")
+
+        async def interrupt(self) -> None:
+            return None
+
+        async def disconnect(self) -> None:
+            self.disconnect_calls += 1
+
+    failing_client = FailingConnectClient()
+    monkeypatch.setattr(
+        ws_api,
+        "_create_claude_session_client",
+        lambda _state: cast(Any, failing_client),
+    )
+
+    state = ws_api.ConnectionState(
+        websocket=cast(Any, MagicMock()),
+        settings=Settings(),
+        conversation_id=1,
+        client_id="client",
+        session_id=1,
+        project_id=1,
+        agent_id=1,
+        task_id=None,
+        model_provider="anthropic",
+        model_name="claude-sonnet-4-5",
+        system_prompt="system",
+        workspace_root=None,
+    )
+
+    async def _run() -> None:
+        await ws_api._ensure_sdk_connected(state)
+
+    with pytest.raises(RuntimeError, match="connect failed"):
+        asyncio.run(_run())
+
+    assert failing_client.disconnect_calls == 1
+    assert state.sdk_client is None
+    assert state.sdk_connected is False
+
+
 def test_create_claude_session_client_uses_windows_default_cli_path(
     monkeypatch: MonkeyPatch,
 ) -> None:

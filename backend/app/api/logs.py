@@ -43,7 +43,7 @@ def _parse_run_log_payload(payload: dict[str, Any]) -> RunLogEventPayload | None
     response_model=list[RunLogRecordRead],
     responses=cast(
         dict[int | str, dict[str, Any]],
-        error_response_docs(status.HTTP_422_UNPROCESSABLE_ENTITY),
+        error_response_docs(status.HTTP_422_UNPROCESSABLE_CONTENT),
     ),
 )
 def list_run_logs(

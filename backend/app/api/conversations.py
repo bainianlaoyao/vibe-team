@@ -260,7 +260,7 @@ def _commit_or_conflict(session: Session) -> None:
     response_model=ConversationListResponse,
     responses=cast(
         dict[int | str, dict[str, Any]],
-        error_response_docs(status.HTTP_422_UNPROCESSABLE_ENTITY),
+        error_response_docs(status.HTTP_422_UNPROCESSABLE_CONTENT),
     ),
 )
 def list_conversations(
@@ -299,7 +299,7 @@ def list_conversations(
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
             status.HTTP_409_CONFLICT,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )
@@ -317,7 +317,7 @@ def create_conversation(payload: ConversationCreate, session: DbSession) -> Conv
             )
         if task.project_id != payload.project_id:
             raise ApiException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 "INVALID_TASK_REFERENCE",
                 "Task must belong to the same project as conversation.",
             )
@@ -337,7 +337,7 @@ def create_conversation(payload: ConversationCreate, session: DbSession) -> Conv
     response_model=ConversationRead,
     responses=cast(
         dict[int | str, dict[str, Any]],
-        error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_ENTITY),
+        error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_CONTENT),
     ),
 )
 def get_conversation(conversation_id: int, session: DbSession) -> ConversationRead:
@@ -352,7 +352,7 @@ def get_conversation(conversation_id: int, session: DbSession) -> ConversationRe
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
             status.HTTP_409_CONFLICT,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )
@@ -394,7 +394,7 @@ def update_conversation(
     status_code=status.HTTP_204_NO_CONTENT,
     responses=cast(
         dict[int | str, dict[str, Any]],
-        error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_ENTITY),
+        error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_CONTENT),
     ),
 )
 def delete_conversation(conversation_id: int, session: DbSession) -> Response:
@@ -414,7 +414,7 @@ def delete_conversation(conversation_id: int, session: DbSession) -> Response:
     response_model=MessageListResponse,
     responses=cast(
         dict[int | str, dict[str, Any]],
-        error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_ENTITY),
+        error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_CONTENT),
     ),
 )
 def list_messages(
@@ -454,7 +454,7 @@ def list_messages(
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
             status.HTTP_409_CONFLICT,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )
@@ -488,7 +488,7 @@ def create_message(conversation_id: int, payload: MessageCreate, session: DbSess
     response_model=MessageRead,
     responses=cast(
         dict[int | str, dict[str, Any]],
-        error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_ENTITY),
+        error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_CONTENT),
     ),
 )
 def get_message(conversation_id: int, message_id: int, session: DbSession) -> MessageRead:

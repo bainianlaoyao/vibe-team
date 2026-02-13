@@ -217,7 +217,7 @@ def _delete_persona_file(project_root: str, persona_path: str) -> None:
     response_model=list[AgentRead],
     responses=cast(
         dict[int | str, dict[str, Any]],
-        error_response_docs(status.HTTP_422_UNPROCESSABLE_ENTITY),
+        error_response_docs(status.HTTP_422_UNPROCESSABLE_CONTENT),
     ),
 )
 def list_agents(
@@ -244,7 +244,7 @@ def list_agents(
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
             status.HTTP_409_CONFLICT,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )
@@ -283,7 +283,7 @@ def create_agent(payload: AgentCreate, session: DbSession) -> AgentRead:
     response_model=AgentRead,
     responses=cast(
         dict[int | str, dict[str, Any]],
-        error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_ENTITY),
+        error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_CONTENT),
     ),
 )
 def get_agent(agent_id: int, session: DbSession) -> AgentRead:
@@ -295,7 +295,7 @@ def get_agent(agent_id: int, session: DbSession) -> AgentRead:
     response_model=AgentHealthRead,
     responses=cast(
         dict[int | str, dict[str, Any]],
-        error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_ENTITY),
+        error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_CONTENT),
     ),
 )
 def get_agent_health(agent_id: int, session: DbSession) -> AgentHealthRead:
@@ -346,7 +346,7 @@ def get_agent_health(agent_id: int, session: DbSession) -> AgentHealthRead:
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
             status.HTTP_409_CONFLICT,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )
@@ -434,7 +434,7 @@ def update_agent(agent_id: int, payload: AgentUpdate, session: DbSession) -> Age
         dict[int | str, dict[str, Any]],
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )
@@ -470,7 +470,7 @@ def get_agent_persona(agent_id: int, session: DbSession) -> dict[str, str]:
         dict[int | str, dict[str, Any]],
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )
@@ -506,7 +506,7 @@ def update_agent_persona(
     status_code=status.HTTP_204_NO_CONTENT,
     responses=cast(
         dict[int | str, dict[str, Any]],
-        error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_ENTITY),
+        error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_CONTENT),
     ),
 )
 def delete_agent(agent_id: int, session: DbSession) -> Response:

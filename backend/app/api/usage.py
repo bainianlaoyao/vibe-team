@@ -75,7 +75,7 @@ def _resolve_model_map(session: Session, run_ids: set[int]) -> dict[int, str]:
     response_model=UsageBudgetRead,
     responses=cast(
         dict[int | str, dict[str, Any]],
-        error_response_docs(status.HTTP_422_UNPROCESSABLE_ENTITY),
+        error_response_docs(status.HTTP_422_UNPROCESSABLE_CONTENT),
     ),
 )
 def get_usage_budget(
@@ -109,7 +109,7 @@ def get_usage_budget(
     response_model=list[UsageTimelinePointRead],
     responses=cast(
         dict[int | str, dict[str, Any]],
-        error_response_docs(status.HTTP_422_UNPROCESSABLE_ENTITY),
+        error_response_docs(status.HTTP_422_UNPROCESSABLE_CONTENT),
     ),
 )
 def get_usage_timeline(
@@ -161,7 +161,7 @@ def get_usage_timeline(
     response_model=list[UsageErrorRead],
     responses=cast(
         dict[int | str, dict[str, Any]],
-        error_response_docs(status.HTTP_422_UNPROCESSABLE_ENTITY),
+        error_response_docs(status.HTTP_422_UNPROCESSABLE_CONTENT),
     ),
 )
 def get_usage_errors(

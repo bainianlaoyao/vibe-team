@@ -350,13 +350,13 @@ def _ensure_assignee_is_valid(
     assignee = session.get(Agent, assignee_agent_id)
     if assignee is None:
         raise ApiException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "INVALID_ASSIGNEE",
             f"Agent {assignee_agent_id} does not exist.",
         )
     if assignee.project_id != project_id:
         raise ApiException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "INVALID_ASSIGNEE",
             "Assignee agent must belong to the same project.",
         )
@@ -373,7 +373,7 @@ def _ensure_parent_task_is_valid(
         return
     if current_task_id is not None and current_task_id == parent_task_id:
         raise ApiException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "INVALID_TASK_DEPENDENCY",
             "Task cannot depend on itself.",
         )
@@ -381,13 +381,13 @@ def _ensure_parent_task_is_valid(
     parent_task = session.get(Task, parent_task_id)
     if parent_task is None:
         raise ApiException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "INVALID_TASK_DEPENDENCY",
             f"Parent task {parent_task_id} does not exist.",
         )
     if parent_task.project_id != project_id:
         raise ApiException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "INVALID_TASK_DEPENDENCY",
             "Parent task must belong to the same project.",
         )
@@ -495,7 +495,7 @@ def _append_task_intervention_audit_event(
 
 def _raise_invalid_transition(message: str) -> None:
     raise ApiException(
-        status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
         "INVALID_TASK_TRANSITION",
         message,
     )
@@ -503,7 +503,7 @@ def _raise_invalid_transition(message: str) -> None:
 
 def _raise_invalid_command(message: str) -> None:
     raise ApiException(
-        status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
         "INVALID_TASK_COMMAND",
         message,
     )
@@ -530,14 +530,14 @@ def _resolve_task_run_target_status(*, run_status: TaskRunStatus) -> TaskStatus:
 def _resolve_task_assignee(task: Task, session: Session) -> Agent:
     if task.assignee_agent_id is None:
         raise ApiException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "INVALID_ASSIGNEE",
             "Task must have an assignee_agent_id before run.",
         )
     agent = session.get(Agent, task.assignee_agent_id)
     if agent is None or agent.project_id != task.project_id:
         raise ApiException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "INVALID_ASSIGNEE",
             "Task assignee agent is missing or does not belong to the same project.",
         )
@@ -606,7 +606,7 @@ def _build_llm_request(
 def _raise_provider_error(error: LLMProviderError) -> None:
     if error.code in {LLMErrorCode.UNSUPPORTED_PROVIDER, LLMErrorCode.INVALID_REQUEST}:
         raise ApiException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "INVALID_LLM_PROVIDER",
             error.message,
         )
@@ -816,7 +816,7 @@ def _list_broadcast_target_task_ids(
     response_model=list[TaskRead],
     responses=cast(
         dict[int | str, dict[str, Any]],
-        error_response_docs(status.HTTP_422_UNPROCESSABLE_ENTITY),
+        error_response_docs(status.HTTP_422_UNPROCESSABLE_CONTENT),
     ),
 )
 def list_tasks(
@@ -846,7 +846,7 @@ def list_tasks(
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
             status.HTTP_409_CONFLICT,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )
@@ -890,7 +890,7 @@ def create_task(payload: TaskCreate, session: DbSession) -> TaskRead:
     response_model=TaskRead,
     responses=cast(
         dict[int | str, dict[str, Any]],
-        error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_ENTITY),
+        error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_CONTENT),
     ),
 )
 def get_task(task_id: int, session: DbSession) -> TaskRead:
@@ -905,7 +905,7 @@ def get_task(task_id: int, session: DbSession) -> TaskRead:
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
             status.HTTP_409_CONFLICT,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )
@@ -973,7 +973,7 @@ def update_task(task_id: int, payload: TaskUpdate, session: DbSession) -> TaskRe
     response_model=TaskCommandBroadcastResponse,
     responses=cast(
         dict[int | str, dict[str, Any]],
-        error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_ENTITY),
+        error_response_docs(status.HTTP_404_NOT_FOUND, status.HTTP_422_UNPROCESSABLE_CONTENT),
     ),
 )
 def broadcast_task_command(
@@ -1066,7 +1066,7 @@ def broadcast_task_command(
             status.HTTP_401_UNAUTHORIZED,
             status.HTTP_404_NOT_FOUND,
             status.HTTP_409_CONFLICT,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             status.HTTP_503_SERVICE_UNAVAILABLE,
         ),
     ),
@@ -1181,7 +1181,7 @@ def run_task(
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
             status.HTTP_409_CONFLICT,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )
@@ -1208,7 +1208,7 @@ def pause_task(
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
             status.HTTP_409_CONFLICT,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )
@@ -1235,7 +1235,7 @@ def resume_task(
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
             status.HTTP_409_CONFLICT,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )
@@ -1262,7 +1262,7 @@ def retry_task(
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
             status.HTTP_409_CONFLICT,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )
@@ -1289,7 +1289,7 @@ def cancel_task(
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
             status.HTTP_409_CONFLICT,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )

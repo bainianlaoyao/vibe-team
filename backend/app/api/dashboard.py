@@ -135,7 +135,7 @@ def _build_update_summary(event: Event) -> tuple[str, int | None, int | None, li
     response_model=TaskStatsRead,
     responses=cast(
         dict[int | str, dict[str, Any]],
-        error_response_docs(status.HTTP_422_UNPROCESSABLE_ENTITY),
+        error_response_docs(status.HTTP_422_UNPROCESSABLE_CONTENT),
     ),
 )
 def get_task_stats(
@@ -156,7 +156,7 @@ def get_task_stats(
     response_model=list[ProjectUpdateRead],
     responses=cast(
         dict[int | str, dict[str, Any]],
-        error_response_docs(status.HTTP_422_UNPROCESSABLE_ENTITY),
+        error_response_docs(status.HTTP_422_UNPROCESSABLE_CONTENT),
     ),
 )
 def list_recent_updates(

@@ -105,7 +105,7 @@ def _find_role_or_404(roles: list[RoleRead], role_id: str) -> int:
     response_model=list[RoleRead],
     responses=cast(
         dict[int | str, dict[str, Any]],
-        error_response_docs(status.HTTP_422_UNPROCESSABLE_ENTITY, status.HTTP_404_NOT_FOUND),
+        error_response_docs(status.HTTP_422_UNPROCESSABLE_CONTENT, status.HTTP_404_NOT_FOUND),
     ),
 )
 def list_roles(
@@ -125,7 +125,7 @@ def list_roles(
         dict[int | str, dict[str, Any]],
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )
@@ -156,7 +156,7 @@ def create_role(payload: RoleCreateRequest, session: DbSession) -> RoleRead:
         dict[int | str, dict[str, Any]],
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )
@@ -194,7 +194,7 @@ def update_role(role_id: str, payload: RoleUpdateRequest, session: DbSession) ->
         dict[int | str, dict[str, Any]],
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )

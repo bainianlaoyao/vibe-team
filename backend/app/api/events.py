@@ -163,14 +163,14 @@ def _parse_last_event_id_header(last_event_id_header: str | None) -> int | None:
         return None
     if not normalized.isdigit():
         raise ApiException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "INVALID_LAST_EVENT_ID",
             "Last-Event-ID header must be a positive integer.",
         )
     parsed = int(normalized)
     if parsed <= 0:
         raise ApiException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "INVALID_LAST_EVENT_ID",
             "Last-Event-ID header must be a positive integer.",
         )
@@ -185,7 +185,7 @@ def _resolve_start_event_id(
     header_value = _parse_last_event_id_header(last_event_id_header)
     if last_event_id is not None and header_value is not None and last_event_id != header_value:
         raise ApiException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "INVALID_LAST_EVENT_ID",
             "Query parameter last_event_id conflicts with Last-Event-ID header.",
         )
@@ -227,7 +227,7 @@ def _list_recent_events(*, project_id: int | None, limit: int) -> list[Event]:
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
             status.HTTP_409_CONFLICT,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )
@@ -256,7 +256,7 @@ def create_event(payload: EventCreateRequest, session: DbSession) -> StreamEvent
     "/stream",
     responses=cast(
         dict[int | str, dict[str, Any]],
-        error_response_docs(status.HTTP_422_UNPROCESSABLE_ENTITY),
+        error_response_docs(status.HTTP_422_UNPROCESSABLE_CONTENT),
     ),
 )
 async def stream_events(

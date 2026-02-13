@@ -59,7 +59,7 @@ def _normalize_utc_datetime(value: datetime) -> datetime:
     response_model=list[UsageDailyMetricRead],
     responses=cast(
         dict[int | str, dict[str, Any]],
-        error_response_docs(status.HTTP_422_UNPROCESSABLE_ENTITY),
+        error_response_docs(status.HTTP_422_UNPROCESSABLE_CONTENT),
     ),
 )
 def usage_daily_metrics(
@@ -109,7 +109,7 @@ def usage_daily_metrics(
     response_model=RunsSummaryMetricRead,
     responses=cast(
         dict[int | str, dict[str, Any]],
-        error_response_docs(status.HTTP_422_UNPROCESSABLE_ENTITY),
+        error_response_docs(status.HTTP_422_UNPROCESSABLE_CONTENT),
     ),
 )
 def runs_summary_metrics(

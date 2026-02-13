@@ -132,7 +132,7 @@ def _list_read_item_ids(session: Session, *, project_id: int | None = None) -> s
     response_model=list[InboxItemRead],
     responses=cast(
         dict[int | str, dict[str, Any]],
-        error_response_docs(status.HTTP_422_UNPROCESSABLE_ENTITY),
+        error_response_docs(status.HTTP_422_UNPROCESSABLE_CONTENT),
     ),
 )
 def list_inbox_items(
@@ -169,7 +169,7 @@ def list_inbox_items(
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
             status.HTTP_409_CONFLICT,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )
@@ -207,7 +207,7 @@ def mark_inbox_item_read(
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
             status.HTTP_409_CONFLICT,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )
@@ -225,7 +225,7 @@ def close_inbox_item(item_id: int, payload: InboxCloseRequest, session: DbSessio
     item_type = _enum_value(item.item_type)
     if item_type == InboxItemType.AWAIT_USER_INPUT.value and user_input is None:
         raise ApiException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "USER_INPUT_REQUIRED",
             "Closing await_user_input items requires non-empty user_input.",
         )

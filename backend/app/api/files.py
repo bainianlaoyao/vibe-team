@@ -125,7 +125,7 @@ def _decode_path(file_id: str) -> str:
         decoded = raw.decode("utf-8")
     except Exception as exc:
         raise ApiException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "INVALID_FILE_ID",
             "file_id is not a valid encoded path.",
         ) from exc
@@ -277,24 +277,24 @@ def _translate_gateway_error(exc: Exception) -> ApiException:
         )
     if isinstance(exc, FileQuotaExceededError):
         return ApiException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "FILE_READ_QUOTA_EXCEEDED",
             str(exc),
         )
     if isinstance(exc, FileOperationTimeoutError):
         return ApiException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "FILE_READ_TIMEOUT",
             str(exc),
         )
     if isinstance(exc, UnsupportedFileTypeError):
         return ApiException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "UNSUPPORTED_FILE_TYPE",
             str(exc),
         )
     return ApiException(
-        status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
         "FILE_READ_FAILED",
         str(exc),
     )
@@ -307,7 +307,7 @@ def _translate_gateway_error(exc: Exception) -> ApiException:
         dict[int | str, dict[str, Any]],
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )
@@ -337,7 +337,7 @@ def get_files_tree(
         dict[int | str, dict[str, Any]],
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )
@@ -360,7 +360,7 @@ def get_file(
         dict[int | str, dict[str, Any]],
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             status.HTTP_403_FORBIDDEN,
         ),
     ),
@@ -376,7 +376,7 @@ def get_file_content(
     target = _resolve_target_path(project_root, encoded_path=file_id)
     if target.is_dir():
         raise ApiException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "FILE_IS_DIRECTORY",
             "Cannot fetch content for a directory path.",
         )
@@ -425,7 +425,7 @@ def get_file_content(
         dict[int | str, dict[str, Any]],
         error_response_docs(
             status.HTTP_404_NOT_FOUND,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         ),
     ),
 )

@@ -4,7 +4,6 @@ import asyncio
 import contextlib
 import json
 import queue
-import sys
 import threading
 from collections.abc import AsyncIterable, AsyncIterator, Callable, Coroutine
 from dataclasses import asdict, dataclass, field, is_dataclass
@@ -12,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Literal, Protocol, cast
+from typing import Any, Literal, Protocol, TypeVar, cast
 from uuid import uuid4
 
 from claude_agent_sdk import (
@@ -168,6 +167,17 @@ class _StreamEnd:
     pass
 
 
+class _ThreadedClientLifecycle(StrEnum):
+    NEW = "new"
+    CONNECTING = "connecting"
+    CONNECTED = "connected"
+    DISCONNECTING = "disconnecting"
+    CLOSED = "closed"
+
+
+_ThreadedResultT = TypeVar("_ThreadedResultT")
+
+
 class ThreadedClaudeSessionClient:
     def __init__(
         self,
@@ -182,15 +192,22 @@ class ThreadedClaudeSessionClient:
         self._thread_loop: asyncio.AbstractEventLoop | None = None
         self._thread_ready = threading.Event()
         self._thread_lock = threading.Lock()
+        self._state_lock = threading.Lock()
         self._stream_task: asyncio.Task[None] | None = None
         self._message_queue: queue.Queue[Any] | None = None
         self._connected = False
+        self._lifecycle = _ThreadedClientLifecycle.NEW
+
+    def _set_lifecycle(self, lifecycle: _ThreadedClientLifecycle) -> None:
+        with self._state_lock:
+            self._lifecycle = lifecycle
+
+    def _get_lifecycle(self) -> _ThreadedClientLifecycle:
+        with self._state_lock:
+            return self._lifecycle
 
     def _thread_main(self) -> None:
-        if sys.platform == "win32":
-            loop: asyncio.AbstractEventLoop = asyncio.ProactorEventLoop()
-        else:
-            loop = asyncio.new_event_loop()
+        loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         self._thread_loop = loop
         self._thread_ready.set()
@@ -225,26 +242,71 @@ class ThreadedClaudeSessionClient:
         if not self._thread_ready.wait(timeout=5):
             raise RuntimeError("Failed to start Claude session loop thread.")
 
-    async def _run_in_thread_loop(self, coroutine: Coroutine[Any, Any, Any]) -> Any:
+    async def _run_in_thread_loop(
+        self,
+        coroutine_factory: Callable[[], Coroutine[Any, Any, _ThreadedResultT]],
+    ) -> _ThreadedResultT:
         self._ensure_thread_started()
-        if self._thread_loop is None:
+        loop = self._thread_loop
+        if loop is None or not loop.is_running():
             raise RuntimeError("Claude session loop is not available.")
-        future = asyncio.run_coroutine_threadsafe(coroutine, self._thread_loop)
-        return await asyncio.wrap_future(future)
+
+        coroutine = coroutine_factory()
+        try:
+            future = asyncio.run_coroutine_threadsafe(coroutine, loop)
+        except Exception:
+            coroutine.close()
+            raise
+
+        return cast(_ThreadedResultT, await asyncio.wrap_future(future))
+
+    async def _stop_thread(self) -> None:
+        loop = self._thread_loop
+        thread = self._thread
+
+        if loop is not None and loop.is_running():
+            loop.call_soon_threadsafe(loop.stop)
+
+        if thread is not None:
+            await asyncio.to_thread(thread.join, 10)
+            if thread.is_alive():
+                raise RuntimeError("Claude session loop thread failed to stop within timeout.")
+
+        self._thread = None
 
     async def connect(self, prompt: str | AsyncIterable[dict[str, Any]] | None = None) -> None:
         _ = prompt
-        if self._connected:
+        lifecycle = self._get_lifecycle()
+        if lifecycle == _ThreadedClientLifecycle.CONNECTED:
             return
-        await self._run_in_thread_loop(self._client.connect())
+        if lifecycle == _ThreadedClientLifecycle.DISCONNECTING:
+            raise RuntimeError("Claude session is disconnecting.")
+        if lifecycle == _ThreadedClientLifecycle.CLOSED:
+            raise RuntimeError("Claude session client is closed.")
+
+        self._set_lifecycle(_ThreadedClientLifecycle.CONNECTING)
+        try:
+            await self._run_in_thread_loop(lambda: self._client.connect())
+        except Exception:
+            with contextlib.suppress(Exception):
+                await self._run_in_thread_loop(lambda: self._client.disconnect())
+            with contextlib.suppress(Exception):
+                await self._stop_thread()
+            self._connected = False
+            self._message_queue = None
+            self._stream_task = None
+            self._set_lifecycle(_ThreadedClientLifecycle.CLOSED)
+            raise
+
         self._connected = True
+        self._set_lifecycle(_ThreadedClientLifecycle.CONNECTED)
 
     async def query(
         self,
         prompt: str | AsyncIterable[dict[str, Any]],
         session_id: str = "default",
     ) -> None:
-        if not self._connected:
+        if not self._connected or self._get_lifecycle() != _ThreadedClientLifecycle.CONNECTED:
             raise RuntimeError("Claude session is not connected.")
 
         if isinstance(prompt, str):
@@ -269,6 +331,7 @@ class ThreadedClaudeSessionClient:
                 except Exception as exc:  # noqa: BLE001
                     message_queue.put(_StreamFailure(exc))
                 finally:
+                    self._stream_task = None
                     message_queue.put(_StreamEnd())
 
             self._stream_task = asyncio.create_task(_stream_messages())
@@ -283,15 +346,14 @@ class ThreadedClaudeSessionClient:
 
                     await self._client.query(_prompt_iter(), session_id=session_id)
             except Exception as exc:  # noqa: BLE001
-                if self._stream_task is not None:
+                if self._stream_task is not None and not self._stream_task.done():
                     self._stream_task.cancel()
                     with contextlib.suppress(asyncio.CancelledError):
                         await self._stream_task
                 message_queue.put(_StreamFailure(exc))
-                message_queue.put(_StreamEnd())
                 raise
 
-        await self._run_in_thread_loop(_query_in_thread())
+        await self._run_in_thread_loop(lambda: _query_in_thread())
 
     async def _drain_stream(self) -> AsyncIterator[Any]:
         if self._message_queue is None:
@@ -312,37 +374,55 @@ class ThreadedClaudeSessionClient:
         return self._drain_stream()
 
     async def interrupt(self) -> None:
-        if not self._connected:
+        if not self._connected or self._get_lifecycle() != _ThreadedClientLifecycle.CONNECTED:
             return
-        await self._run_in_thread_loop(self._client.interrupt())
+        await self._run_in_thread_loop(lambda: self._client.interrupt())
 
     async def disconnect(self) -> None:
-        if self._thread is None:
+        lifecycle = self._get_lifecycle()
+        if (
+            lifecycle in {_ThreadedClientLifecycle.NEW, _ThreadedClientLifecycle.CLOSED}
+            and self._thread is None
+        ):
             self._connected = False
             self._message_queue = None
+            self._stream_task = None
+            self._set_lifecycle(_ThreadedClientLifecycle.CLOSED)
             return
+
+        self._set_lifecycle(_ThreadedClientLifecycle.DISCONNECTING)
+        disconnect_error: Exception | None = None
 
         async def _disconnect_in_thread() -> None:
             if self._stream_task is not None and not self._stream_task.done():
                 self._stream_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await self._stream_task
+            self._stream_task = None
             await self._client.disconnect()
 
-        with contextlib.suppress(Exception):
-            await self._run_in_thread_loop(_disconnect_in_thread())
+        try:
+            if self._thread is not None:
+                await self._run_in_thread_loop(lambda: _disconnect_in_thread())
+        except Exception as exc:  # noqa: BLE001
+            disconnect_error = exc
 
         self._connected = False
         self._message_queue = None
         self._stream_task = None
 
-        loop = self._thread_loop
-        thread = self._thread
-        if loop is not None and loop.is_running():
-            loop.call_soon_threadsafe(loop.stop)
-        if thread is not None:
-            await asyncio.to_thread(thread.join, 2)
-        self._thread = None
+        try:
+            await self._stop_thread()
+        except Exception as exc:  # noqa: BLE001
+            if disconnect_error is None:
+                disconnect_error = exc
+
+        self._set_lifecycle(_ThreadedClientLifecycle.CLOSED)
+
+        if disconnect_error is not None:
+            raise RuntimeError(
+                "Failed to shutdown Claude session client cleanly."
+            ) from disconnect_error
 
 
 @dataclass
@@ -694,11 +774,37 @@ def _build_sdk_message_payload(state: ConnectionState, command: TurnCommand) -> 
     return payload
 
 
+async def _disconnect_sdk_client(state: ConnectionState, *, reason: str) -> None:
+    client = state.sdk_client
+    state.sdk_client = None
+    state.sdk_connected = False
+    if client is None:
+        return
+    try:
+        await client.disconnect()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "conversation.ws.sdk_disconnect_failed",
+            conversation_id=state.conversation_id,
+            session_id=state.session_id,
+            reason=reason,
+            error=str(exc),
+        )
+
+
 async def _ensure_sdk_connected(state: ConnectionState) -> None:
     if state.sdk_connected and state.sdk_client is not None:
         return
-    state.sdk_client = _create_claude_session_client(state)
-    await state.sdk_client.connect()
+
+    client = state.sdk_client or _create_claude_session_client(state)
+    state.sdk_client = client
+    state.sdk_connected = False
+    try:
+        await client.connect()
+    except Exception:
+        await _disconnect_sdk_client(state, reason="connect_failed")
+        raise
+
     state.sdk_connected = True
 
 
@@ -960,203 +1066,211 @@ async def _process_turn(state: ConnectionState, command: TurnCommand) -> None:
 
     sdk_payload = _build_sdk_message_payload(state, command)
     assert state.sdk_client is not None
-    await state.sdk_client.query(
-        prompt=_single_message_stream(sdk_payload),
-        session_id=state.sdk_session_id,
-    )
+    sdk_client = state.sdk_client
 
     usage_payload: dict[str, Any] | None = None
     stop_reason: str | None = None
     interrupted = False
     tools_used: list[str] = []
 
-    async for sdk_message in state.sdk_client.receive_response():
-        raw_event = _raw_event_payload(sdk_message)
+    try:
+        await sdk_client.query(
+            prompt=_single_message_stream(sdk_payload),
+            session_id=state.sdk_session_id,
+        )
 
-        if isinstance(sdk_message, AssistantMessage):
-            if sdk_message.error is not None:
-                await _send_error(
-                    state,
-                    code="ASSISTANT_ERROR",
-                    message=f"Claude assistant returned error: {sdk_message.error}",
-                    trace_id=trace_id,
-                    turn_id=command.turn_id,
-                )
-            for block in sdk_message.content:
-                if isinstance(block, TextBlock):
-                    _, message_sequence = _persist_message(
-                        conversation_id=state.conversation_id,
-                        role=MessageRole.ASSISTANT,
-                        message_type=MessageType.TEXT,
-                        content=block.text,
-                        metadata_json={
-                            "turn_id": command.turn_id,
-                            "trace_id": trace_id,
-                            "stream": True,
-                            "raw_event": raw_event,
-                        },
-                    )
-                    await _send_envelope(
-                        state,
-                        msg_type=WSMessageType.ASSISTANT_CHUNK,
-                        payload={"content": block.text},
-                        trace_id=trace_id,
-                        turn_id=command.turn_id,
-                        message_sequence=message_sequence,
-                    )
-                    continue
+        async for sdk_message in sdk_client.receive_response():
+            raw_event = _raw_event_payload(sdk_message)
 
-                if isinstance(block, ThinkingBlock):
-                    _, message_sequence = _persist_message(
-                        conversation_id=state.conversation_id,
-                        role=MessageRole.ASSISTANT,
-                        message_type=MessageType.TEXT,
-                        content=block.thinking,
-                        metadata_json={
-                            "turn_id": command.turn_id,
-                            "trace_id": trace_id,
-                            "thinking": True,
-                            "signature": block.signature,
-                            "raw_event": raw_event,
-                        },
-                    )
-                    await _send_envelope(
-                        state,
-                        msg_type=WSMessageType.ASSISTANT_THINKING,
-                        payload={"content": block.thinking, "signature": block.signature},
-                        trace_id=trace_id,
-                        turn_id=command.turn_id,
-                        message_sequence=message_sequence,
-                    )
-                    continue
-
-                if isinstance(block, ToolUseBlock):
-                    tools_used.append(block.name)
-                    _, message_sequence = _persist_message(
-                        conversation_id=state.conversation_id,
-                        role=MessageRole.ASSISTANT,
-                        message_type=MessageType.TOOL_CALL,
-                        content=block.name,
-                        metadata_json={
-                            "turn_id": command.turn_id,
-                            "trace_id": trace_id,
-                            "tool_id": block.id,
-                            "arguments": block.input,
-                            "raw_event": raw_event,
-                        },
-                    )
-                    await _send_envelope(
-                        state,
-                        msg_type=WSMessageType.ASSISTANT_TOOL_CALL,
-                        payload={
-                            "id": block.id,
-                            "name": block.name,
-                            "arguments": block.input,
-                        },
-                        trace_id=trace_id,
-                        turn_id=command.turn_id,
-                        message_sequence=message_sequence,
-                    )
-                    if block.name == "request_input":
-                        await _handle_request_input_tool(
-                            state=state,
-                            block=block,
-                            trace_id=trace_id,
-                            turn_id=command.turn_id,
-                            raw_event=raw_event,
-                        )
-                    continue
-
-                if isinstance(block, ToolResultBlock):
-                    result_content = (
-                        block.content
-                        if isinstance(block.content, str)
-                        else (
-                            json.dumps(block.content, ensure_ascii=False, default=str)
-                            if block.content is not None
-                            else ""
-                        )
-                    )
-                    _, message_sequence = _persist_message(
-                        conversation_id=state.conversation_id,
-                        role=MessageRole.ASSISTANT,
-                        message_type=MessageType.TOOL_RESULT,
-                        content=result_content,
-                        metadata_json={
-                            "turn_id": command.turn_id,
-                            "trace_id": trace_id,
-                            "tool_id": block.tool_use_id,
-                            "is_error": bool(block.is_error),
-                            "raw_event": raw_event,
-                        },
-                    )
-                    await _send_envelope(
-                        state,
-                        msg_type=WSMessageType.ASSISTANT_TOOL_RESULT,
-                        payload={
-                            "tool_id": block.tool_use_id,
-                            "result": result_content,
-                            "is_error": bool(block.is_error),
-                        },
-                        trace_id=trace_id,
-                        turn_id=command.turn_id,
-                        message_sequence=message_sequence,
-                    )
-                    continue
-
-        elif isinstance(sdk_message, SystemMessage):
-            if sdk_message.subtype.strip().lower() in FILTERED_SYSTEM_MESSAGE_SUBTYPES:
-                continue
-            _, message_sequence = _persist_message(
-                conversation_id=state.conversation_id,
-                role=MessageRole.SYSTEM,
-                message_type=MessageType.TEXT,
-                content=sdk_message.subtype,
-                metadata_json={
-                    "turn_id": command.turn_id,
-                    "trace_id": trace_id,
-                    "system_data": sdk_message.data,
-                    "raw_event": raw_event,
-                },
-            )
-            await _send_envelope(
-                state,
-                msg_type=WSMessageType.SESSION_SYSTEM_EVENT,
-                payload={
-                    "subtype": sdk_message.subtype,
-                    "data": sdk_message.data,
-                },
-                trace_id=trace_id,
-                turn_id=command.turn_id,
-                message_sequence=message_sequence,
-            )
-            continue
-
-        elif isinstance(sdk_message, UserMessage):
-            continue
-
-        elif isinstance(sdk_message, ResultMessage):
-            usage_payload = _usage_payload_from_result(sdk_message)
-            stop_reason = sdk_message.subtype
-            if sdk_message.is_error:
-                if _is_interrupt_subtype(sdk_message.subtype):
-                    interrupted = True
-                else:
-                    await _emit_runtime_state(
-                        state,
-                        next_state=ConversationRuntimeState.ERROR,
-                        trace_id=trace_id,
-                        turn_id=command.turn_id,
-                        reason=sdk_message.subtype,
-                    )
+            if isinstance(sdk_message, AssistantMessage):
+                if sdk_message.error is not None:
                     await _send_error(
                         state,
-                        code="LLM_RESULT_ERROR",
-                        message=sdk_message.result or f"Claude run failed: {sdk_message.subtype}",
+                        code="ASSISTANT_ERROR",
+                        message=f"Claude assistant returned error: {sdk_message.error}",
                         trace_id=trace_id,
                         turn_id=command.turn_id,
                     )
-            break
+                for block in sdk_message.content:
+                    if isinstance(block, TextBlock):
+                        _, message_sequence = _persist_message(
+                            conversation_id=state.conversation_id,
+                            role=MessageRole.ASSISTANT,
+                            message_type=MessageType.TEXT,
+                            content=block.text,
+                            metadata_json={
+                                "turn_id": command.turn_id,
+                                "trace_id": trace_id,
+                                "stream": True,
+                                "raw_event": raw_event,
+                            },
+                        )
+                        await _send_envelope(
+                            state,
+                            msg_type=WSMessageType.ASSISTANT_CHUNK,
+                            payload={"content": block.text},
+                            trace_id=trace_id,
+                            turn_id=command.turn_id,
+                            message_sequence=message_sequence,
+                        )
+                        continue
+
+                    if isinstance(block, ThinkingBlock):
+                        _, message_sequence = _persist_message(
+                            conversation_id=state.conversation_id,
+                            role=MessageRole.ASSISTANT,
+                            message_type=MessageType.TEXT,
+                            content=block.thinking,
+                            metadata_json={
+                                "turn_id": command.turn_id,
+                                "trace_id": trace_id,
+                                "thinking": True,
+                                "signature": block.signature,
+                                "raw_event": raw_event,
+                            },
+                        )
+                        await _send_envelope(
+                            state,
+                            msg_type=WSMessageType.ASSISTANT_THINKING,
+                            payload={"content": block.thinking, "signature": block.signature},
+                            trace_id=trace_id,
+                            turn_id=command.turn_id,
+                            message_sequence=message_sequence,
+                        )
+                        continue
+
+                    if isinstance(block, ToolUseBlock):
+                        tools_used.append(block.name)
+                        _, message_sequence = _persist_message(
+                            conversation_id=state.conversation_id,
+                            role=MessageRole.ASSISTANT,
+                            message_type=MessageType.TOOL_CALL,
+                            content=block.name,
+                            metadata_json={
+                                "turn_id": command.turn_id,
+                                "trace_id": trace_id,
+                                "tool_id": block.id,
+                                "arguments": block.input,
+                                "raw_event": raw_event,
+                            },
+                        )
+                        await _send_envelope(
+                            state,
+                            msg_type=WSMessageType.ASSISTANT_TOOL_CALL,
+                            payload={
+                                "id": block.id,
+                                "name": block.name,
+                                "arguments": block.input,
+                            },
+                            trace_id=trace_id,
+                            turn_id=command.turn_id,
+                            message_sequence=message_sequence,
+                        )
+                        if block.name == "request_input":
+                            await _handle_request_input_tool(
+                                state=state,
+                                block=block,
+                                trace_id=trace_id,
+                                turn_id=command.turn_id,
+                                raw_event=raw_event,
+                            )
+                        continue
+
+                    if isinstance(block, ToolResultBlock):
+                        result_content = (
+                            block.content
+                            if isinstance(block.content, str)
+                            else (
+                                json.dumps(block.content, ensure_ascii=False, default=str)
+                                if block.content is not None
+                                else ""
+                            )
+                        )
+                        _, message_sequence = _persist_message(
+                            conversation_id=state.conversation_id,
+                            role=MessageRole.ASSISTANT,
+                            message_type=MessageType.TOOL_RESULT,
+                            content=result_content,
+                            metadata_json={
+                                "turn_id": command.turn_id,
+                                "trace_id": trace_id,
+                                "tool_id": block.tool_use_id,
+                                "is_error": bool(block.is_error),
+                                "raw_event": raw_event,
+                            },
+                        )
+                        await _send_envelope(
+                            state,
+                            msg_type=WSMessageType.ASSISTANT_TOOL_RESULT,
+                            payload={
+                                "tool_id": block.tool_use_id,
+                                "result": result_content,
+                                "is_error": bool(block.is_error),
+                            },
+                            trace_id=trace_id,
+                            turn_id=command.turn_id,
+                            message_sequence=message_sequence,
+                        )
+                        continue
+
+            elif isinstance(sdk_message, SystemMessage):
+                if sdk_message.subtype.strip().lower() in FILTERED_SYSTEM_MESSAGE_SUBTYPES:
+                    continue
+                _, message_sequence = _persist_message(
+                    conversation_id=state.conversation_id,
+                    role=MessageRole.SYSTEM,
+                    message_type=MessageType.TEXT,
+                    content=sdk_message.subtype,
+                    metadata_json={
+                        "turn_id": command.turn_id,
+                        "trace_id": trace_id,
+                        "system_data": sdk_message.data,
+                        "raw_event": raw_event,
+                    },
+                )
+                await _send_envelope(
+                    state,
+                    msg_type=WSMessageType.SESSION_SYSTEM_EVENT,
+                    payload={
+                        "subtype": sdk_message.subtype,
+                        "data": sdk_message.data,
+                    },
+                    trace_id=trace_id,
+                    turn_id=command.turn_id,
+                    message_sequence=message_sequence,
+                )
+                continue
+
+            elif isinstance(sdk_message, UserMessage):
+                continue
+
+            elif isinstance(sdk_message, ResultMessage):
+                usage_payload = _usage_payload_from_result(sdk_message)
+                stop_reason = sdk_message.subtype
+                if sdk_message.is_error:
+                    if _is_interrupt_subtype(sdk_message.subtype):
+                        interrupted = True
+                    else:
+                        await _emit_runtime_state(
+                            state,
+                            next_state=ConversationRuntimeState.ERROR,
+                            trace_id=trace_id,
+                            turn_id=command.turn_id,
+                            reason=sdk_message.subtype,
+                        )
+                        await _send_error(
+                            state,
+                            code="LLM_RESULT_ERROR",
+                            message=(
+                                sdk_message.result or f"Claude run failed: {sdk_message.subtype}"
+                            ),
+                            trace_id=trace_id,
+                            turn_id=command.turn_id,
+                        )
+                break
+    except Exception:
+        await _disconnect_sdk_client(state, reason="turn_failed")
+        raise
 
     if state.runtime_state != ConversationRuntimeState.ERROR:
         if state.pending_question_id is not None:
@@ -1572,10 +1686,7 @@ async def _shutdown_state(state: ConnectionState, *, close_socket: bool, reason:
         state.worker_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await state.worker_task
-    if state.sdk_client is not None:
-        with contextlib.suppress(Exception):
-            await state.sdk_client.disconnect()
-        state.sdk_connected = False
+    await _disconnect_sdk_client(state, reason=reason)
     with session_scope() as session:
         SessionRepository(session).disconnect(state.session_id)
     if close_socket:

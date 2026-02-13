@@ -40,24 +40,15 @@ cd backend
 
 ## 配置
 
-⚠️ **配置已转移到项目目录**。后端从项目目录的 `.env` 文件读取配置。
-
-### 快速开始
-
-```bash
-cd ../play_ground  # 你的项目目录
-cp .env.example .env
-# 编辑 .env 文件
-```
-
-### 关键配置项
+通过环境变量控制运行参数：
 
 - `APP_ENV`: `development` / `test` / `production`
 - `APP_NAME`: 服务名称（默认 `BeeBeeBrain Backend`）
 - `HOST`: 绑定地址（默认 `127.0.0.1`）
 - `PORT`: 端口（默认 `8000`）
-- `PROJECT_ROOT`: 项目目录路径（必需，数据库将创建在 `{PROJECT_ROOT}/.beebeebrain/beebeebrain.db`）
-- `DATABASE_URL`: 数据库连接串（可选，默认从 PROJECT_ROOT 推导）
+- `PROJECT_ROOT`: 项目目录路径（与 `DATABASE_URL` 互斥；设置后数据库固定为 `{PROJECT_ROOT}/.beebeebrain/beebeebrain.db`）
+- `DATABASE_URL`: 数据库连接串（与 `PROJECT_ROOT` 互斥；设置后直接使用该连接串）
+- 约束：`PROJECT_ROOT` 与 `DATABASE_URL` 必须二选一，不能同时缺失或同时设置。
 - `DB_AUTO_INIT`: 启动时自动执行 DB 初始化（迁移）（默认仅 `APP_ENV=development` 为 `true`）
 - `DB_AUTO_SEED`: 启动时自动写入种子数据（默认仅 `APP_ENV=development` 为 `true`）
 - `DEBUG`: 调试开关（默认开发/测试 `true`，生产 `false`）

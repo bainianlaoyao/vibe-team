@@ -1,21 +1,35 @@
+from pathlib import Path
+
+import pytest
 from pytest import MonkeyPatch
 
 from app.core.config import load_settings
 
 
-def test_load_settings_for_test_env(monkeypatch: MonkeyPatch) -> None:
+def _to_sqlite_url(path: Path) -> str:
+    return f"sqlite:///{path.as_posix()}"
+
+
+@pytest.fixture(autouse=True)
+def _reset_required_env(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("PROJECT_ROOT", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("DATABASE_URL", _to_sqlite_url(tmp_path / "config-test.db"))
+
+
+def test_load_settings_for_test_env(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("APP_ENV", "test")
     monkeypatch.delenv("DEBUG", raising=False)
     monkeypatch.delenv("TESTING", raising=False)
+    db_url = _to_sqlite_url(tmp_path / "test-env.db")
+    monkeypatch.setenv("DATABASE_URL", db_url)
 
     settings = load_settings()
 
     assert settings.app_env == "test"
     assert settings.testing is True
     assert settings.debug is True
-    # database_url 现在从 PROJECT_ROOT 推导
-    assert ".beebeebrain" in settings.database_url
-    assert "beebeebrain.db" in settings.database_url
+    assert settings.database_url == db_url
     assert settings.db_auto_init is False
     assert settings.db_auto_seed is False
 
@@ -30,6 +44,42 @@ def test_load_settings_for_production_env(monkeypatch: MonkeyPatch) -> None:
     assert settings.debug is False
     assert settings.db_auto_init is False
     assert settings.db_auto_seed is False
+
+
+def test_load_settings_supports_project_root_based_database_path(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "workspace"
+    project_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("PROJECT_ROOT", str(project_root))
+
+    settings = load_settings()
+
+    assert settings.project_root == project_root
+    assert settings.database_url == _to_sqlite_url(project_root / ".beebeebrain" / "beebeebrain.db")
+
+
+def test_load_settings_rejects_mutually_exclusive_database_settings(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "workspace"
+    project_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("PROJECT_ROOT", str(project_root))
+    monkeypatch.setenv("DATABASE_URL", _to_sqlite_url(tmp_path / "override.db"))
+
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        load_settings()
+
+
+def test_load_settings_requires_database_source(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.delenv("PROJECT_ROOT", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    with pytest.raises(ValueError, match="Either PROJECT_ROOT or DATABASE_URL"):
+        load_settings()
 
 
 def test_load_settings_for_development_env_db_auto_init_defaults(
