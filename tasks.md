@@ -165,3 +165,16 @@ Phase 10 验收：
 1. 优先保证协议映射与 `request_input` 闭环正确性。
 2. 前端改造与后端执行器可并行推进。
 3. 每个 Milestone 结束前必须执行一次"全链路冒烟"。
+
+---
+
+## 任务管理接口补充计划（待排期，不在本次实现）
+
+背景：
+1. 前端 `agents/table` 与 `agents/kanban` 已接入现有 `GET /api/v1/updates` 的 `files_changed`。
+2. 当前后端尚无任务级 `diffAdd/diffDel` 聚合接口，前端无法展示真实代码增删行统计。
+
+计划：
+1. [ ] 新增任务变更详情接口：`GET /api/v1/tasks/{task_id}/changes`，返回 `files_changed`、`diff_add`、`diff_del`、`last_changed_at`。
+2. [ ] 新增任务变更汇总接口：`GET /api/v1/tasks/changes/summary?project_id=...`，用于 `table/kanban` 批量渲染，避免 N+1 请求。
+3. [ ] 前端任务视图切换到新接口后，移除当前基于 `updates` 的近实时聚合兼容逻辑。

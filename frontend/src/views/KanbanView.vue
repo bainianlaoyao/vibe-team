@@ -1,15 +1,20 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { PhPlus, PhX } from '@phosphor-icons/vue';
+import { useRouter } from 'vue-router';
+import { PhArrowSquareOut, PhPlus, PhX } from '@phosphor-icons/vue';
 import Avatar from '../components/Avatar.vue';
 import TaskCard from '../components/TaskCard.vue';
 import { useAgentsStore } from '../stores/agents';
 import { useTasksStore } from '../stores/tasks';
+import { ApiRequestError, api } from '../services/api';
 import type { Task, TaskStatus } from '../types';
 
+const router = useRouter();
 const tasksStore = useTasksStore();
 const agentsStore = useAgentsStore();
 const selectedTask = ref<Task | null>(null);
+const launchTaskError = ref<string | null>(null);
+const launchingTaskId = ref<string | null>(null);
 
 const columns: {
   status: TaskStatus;
@@ -40,6 +45,59 @@ const priorityClass = (priority: string) => {
 
 const totalTasks = computed(() => tasksStore.tasks.length);
 
+const resolveAssigneeApiId = (task: Task): number | null => {
+  if (!task.assignedTo) {
+    return null;
+  }
+  const agent = agentsStore.agents.find(item => item.id === task.assignedTo);
+  return agent?.apiId ?? null;
+};
+
+const buildConversationTitle = (task: Task): string => {
+  const taskPrefix = task.apiId ? `Task #${task.apiId}` : task.id;
+  return `${taskPrefix}: ${task.title}`;
+};
+
+const launchTaskConversation = async (task: Task) => {
+  launchTaskError.value = null;
+  if (!task.apiId) {
+    launchTaskError.value = 'Missing apiId for selected task.';
+    return;
+  }
+  const assigneeApiId = resolveAssigneeApiId(task);
+  if (!assigneeApiId) {
+    launchTaskError.value = 'Task must be assigned to an agent before launching a conversation.';
+    return;
+  }
+
+  launchingTaskId.value = task.id;
+  try {
+    const existing = await api.listConversations(tasksStore.projectId, assigneeApiId, task.apiId);
+    const target =
+      existing[0] ??
+      (await api.createConversation({
+        project_id: tasksStore.projectId,
+        agent_id: assigneeApiId,
+        task_id: task.apiId,
+        title: buildConversationTitle(task),
+      }));
+    await router.push({
+      path: '/chat',
+      query: {
+        agent: String(assigneeApiId),
+        conversation: String(target.id),
+      },
+    });
+  } catch (cause) {
+    const apiError = cause instanceof ApiRequestError ? cause : null;
+    launchTaskError.value = apiError
+      ? `${apiError.code}: ${apiError.message}`
+      : 'Failed to launch task conversation.';
+  } finally {
+    launchingTaskId.value = null;
+  }
+};
+
 onMounted(async () => {
   await Promise.all([tasksStore.fetchTasks(), agentsStore.fetchAgents()]);
 });
@@ -53,6 +111,7 @@ onMounted(async () => {
       <button class="px-3 py-1 rounded-full border border-border text-text-tertiary hover:text-text-primary">Blocked</button>
       <div class="ml-auto text-text-tertiary">{{ totalTasks }} tasks</div>
     </div>
+    <div v-if="launchTaskError" class="px-4 sm:px-6 lg:px-8 pt-2 text-sm text-error">{{ launchTaskError }}</div>
 
     <div v-if="tasksStore.loading" class="p-6 text-sm text-text-tertiary">Loading tasks...</div>
     <div v-else-if="tasksStore.error" class="p-6 text-sm text-error">{{ tasksStore.error }}</div>
@@ -114,13 +173,23 @@ onMounted(async () => {
             </div>
             <h2 class="text-xl font-semibold text-text-primary leading-tight">{{ selectedTask.title }}</h2>
           </div>
-          <button
-            class="p-2 text-text-tertiary hover:text-text-primary hover:bg-bg-tertiary rounded-lg transition-colors cursor-pointer"
-            aria-label="Close task details"
-            @click="selectedTask = null"
-          >
-            <PhX :size="20" />
-          </button>
+          <div class="flex items-center gap-2">
+            <button
+              class="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-60"
+              :disabled="launchingTaskId === selectedTask.id || !selectedTask.assignedTo"
+              @click="launchTaskConversation(selectedTask)"
+            >
+              <PhArrowSquareOut :size="14" />
+              <span>{{ launchingTaskId === selectedTask.id ? 'Launching...' : 'Launch Chat' }}</span>
+            </button>
+            <button
+              class="p-2 text-text-tertiary hover:text-text-primary hover:bg-bg-tertiary rounded-lg transition-colors cursor-pointer"
+              aria-label="Close task details"
+              @click="selectedTask = null"
+            >
+              <PhX :size="20" />
+            </button>
+          </div>
         </div>
 
         <div class="space-y-6">

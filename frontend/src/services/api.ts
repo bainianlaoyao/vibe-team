@@ -100,15 +100,17 @@ export interface BackendInboxItem {
   is_read: boolean;
 }
 
+interface BackendConversationItem {
+  id: number;
+  title: string;
+  status: string;
+  agent_id: number;
+  task_id: number | null;
+  updated_at: string;
+}
+
 interface BackendConversationList {
-  items: Array<{
-    id: number;
-    title: string;
-    status: string;
-    agent_id: number;
-    task_id: number | null;
-    updated_at: string;
-  }>;
+  items: BackendConversationItem[];
 }
 
 interface BackendUsageBudget {
@@ -306,9 +308,18 @@ export const api = {
     });
   },
 
-  listConversations(projectId = DEFAULT_PROJECT_ID, agentId?: number): Promise<ConversationSummary[]> {
+  listConversations(
+    projectId = DEFAULT_PROJECT_ID,
+    agentId?: number,
+    taskId?: number,
+  ): Promise<ConversationSummary[]> {
     return request<BackendConversationList>(
-      `/conversations${buildQuery({ project_id: projectId, page_size: 50, agent_id: agentId })}`,
+      `/conversations${buildQuery({
+        project_id: projectId,
+        page_size: 50,
+        agent_id: agentId,
+        task_id: taskId,
+      })}`,
     ).then(payload =>
       payload.items.map(item => ({
         id: item.id,
@@ -327,14 +338,7 @@ export const api = {
     task_id?: number | null;
     title: string;
   }): Promise<ConversationSummary> {
-    return request<{
-      id: number;
-      title: string;
-      status: string;
-      agent_id: number;
-      task_id: number | null;
-      updated_at: string;
-    }>('/conversations', {
+    return request<BackendConversationItem>('/conversations', {
       method: 'POST',
       body: payload,
     }).then(item => ({

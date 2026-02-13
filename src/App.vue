@@ -4,14 +4,15 @@ import TheGenesis from './views/TheGenesis.vue'
 import MissionControl from './views/MissionControl.vue'
 import TheShoulderTap from './views/TheShoulderTap.vue'
 import TheConflict from './views/TheConflict.vue'
+import type { ProjectManifesto } from './types/demo'
 
 type Screen = 'genesis' | 'mission-control' | 'shoulder-tap' | 'conflict'
 
 const currentScreen = ref<Screen>('genesis')
 const projectName = ref('')
 
-const handleGenesisComplete = (name: string) => {
-  projectName.value = name
+const handleGenesisComplete = (manifesto: ProjectManifesto) => {
+  projectName.value = manifesto.name
   currentScreen.value = 'mission-control'
 }
 

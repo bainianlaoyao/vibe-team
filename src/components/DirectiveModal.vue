@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, nextTick } from 'vue'
+import { ref, nextTick, watch } from 'vue'
 
 const props = defineProps<{
   show: boolean
@@ -22,11 +22,21 @@ const handleSubmit = () => {
 }
 
 // Focus input when shown
-const focus = async () => {
+const focusInput = async () => {
   await nextTick()
   const input = document.querySelector('#directive-input') as HTMLInputElement
   input?.focus()
 }
+
+watch(
+  () => props.show,
+  (visible) => {
+    if (!visible) {
+      return
+    }
+    void focusInput()
+  }
+)
 </script>
 
 <template>
