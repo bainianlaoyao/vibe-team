@@ -32,7 +32,11 @@ from app.llm.contracts import (
     StreamEventType,
 )
 from app.llm.errors import LLMErrorCode, LLMProviderError
-from app.llm.providers.claude_settings import resolve_claude_auth, resolve_claude_cli_path
+from app.llm.providers.claude_settings import (
+    resolve_claude_auth,
+    resolve_claude_cli_path,
+    resolve_claude_permission_mode,
+)
 
 CLAUDE_PROVIDER_NAME = "claude_code"
 _COST_SCALE = Decimal("0.0001")
@@ -71,6 +75,7 @@ class ClaudeCodeAdapter(LLMClient):
             model=request.model,
             system_prompt=request.system_prompt,
             max_turns=request.max_turns or self._default_max_turns,
+            permission_mode=resolve_claude_permission_mode(),
             cwd=request.cwd,
             settings=str(auth.settings_path) if auth.settings_path else None,
             env=auth.env,
@@ -141,6 +146,7 @@ class ClaudeCodeAdapter(LLMClient):
             model=request.model,
             system_prompt=request.system_prompt,
             max_turns=request.max_turns or self._default_max_turns,
+            permission_mode=resolve_claude_permission_mode(),
             cwd=request.cwd,
             settings=str(auth.settings_path) if auth.settings_path else None,
             env=auth.env,

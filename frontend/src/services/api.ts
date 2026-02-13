@@ -306,6 +306,7 @@ export const api = {
       model?: string;
       system_prompt?: string;
       session_id?: string;
+      conversation_id?: number;
       idempotency_key?: string;
       max_turns?: number;
       timeout_seconds?: number;

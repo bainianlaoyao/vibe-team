@@ -6,7 +6,9 @@ from typing import Any, cast
 from pytest import MonkeyPatch
 from sqlmodel import Session, select
 
+from app.db.enums import TaskRunStatus
 from app.db.models import Event
+from app.db.repositories import TaskRunRepository
 from app.llm import LLMErrorCode, LLMProviderError, LLMResponse, LLMUsage
 from tests.shared import ApiTestContext
 
@@ -660,6 +662,248 @@ def test_run_task_endpoint_executes_and_is_idempotent(
         "running",
         "succeeded",
     ]
+
+
+def test_run_task_endpoint_creates_task_completed_inbox_item(
+    api_context: ApiTestContext,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    fake_llm = SequenceLLMClient([_success_llm_response(session_id="task-run-inbox-1")])
+    monkeypatch.setattr(
+        "app.api.tasks.create_llm_client",
+        lambda **_: fake_llm,
+    )
+
+    agent_response = api_context.client.post(
+        "/api/v1/agents",
+        json={
+            "project_id": api_context.project_id,
+            "name": "Inbox Agent",
+            "role": "executor",
+            "model_provider": "claude_code",
+            "model_name": "claude-sonnet-4-5",
+            "initial_persona_prompt": "Execute tasks.",
+            "enabled_tools_json": [],
+            "status": "active",
+        },
+    )
+    assert agent_response.status_code == 201
+    agent_id = agent_response.json()["id"]
+
+    task_response = api_context.client.post(
+        "/api/v1/tasks",
+        json={
+            "project_id": api_context.project_id,
+            "title": "Inbox Completion Task",
+            "assignee_agent_id": agent_id,
+        },
+    )
+    assert task_response.status_code == 201
+    task_id = task_response.json()["id"]
+
+    idempotency_key = f"task-{task_id}-run-inbox-001"
+    run_response = api_context.client.post(
+        f"/api/v1/tasks/{task_id}/run",
+        json={
+            "prompt": "执行后通知 inbox",
+            "session_id": "task-run-inbox-1",
+            "idempotency_key": idempotency_key,
+            "trace_id": "trace-task-run-inbox-1",
+        },
+    )
+    assert run_response.status_code == 200
+    assert run_response.json()["run_status"] == "succeeded"
+
+    inbox_response = api_context.client.get(
+        "/api/v1/inbox",
+        params={"project_id": api_context.project_id, "item_type": "task_completed"},
+    )
+    assert inbox_response.status_code == 200
+    inbox_items = inbox_response.json()
+    assert len(inbox_items) == 1
+    assert inbox_items[0]["source_type"] == "task"
+    assert inbox_items[0]["source_id"] == f"task:{task_id}"
+    assert inbox_items[0]["status"] == "open"
+
+    duplicate_response = api_context.client.post(
+        f"/api/v1/tasks/{task_id}/run",
+        json={
+            "prompt": "执行后通知 inbox",
+            "session_id": "task-run-inbox-1",
+            "idempotency_key": idempotency_key,
+        },
+    )
+    assert duplicate_response.status_code == 200
+
+    duplicate_inbox_response = api_context.client.get(
+        "/api/v1/inbox",
+        params={"project_id": api_context.project_id, "item_type": "task_completed"},
+    )
+    assert duplicate_inbox_response.status_code == 200
+    assert len(duplicate_inbox_response.json()) == 1
+
+
+def test_run_task_endpoint_blocks_new_idempotency_when_active_run_exists(
+    api_context: ApiTestContext,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    def _fail_create_llm_client(**_: Any) -> None:
+        raise AssertionError("create_llm_client should not be called")
+
+    monkeypatch.setattr(
+        "app.api.tasks.create_llm_client",
+        _fail_create_llm_client,
+    )
+
+    agent_response = api_context.client.post(
+        "/api/v1/agents",
+        json={
+            "project_id": api_context.project_id,
+            "name": "Guard Agent",
+            "role": "executor",
+            "model_provider": "claude_code",
+            "model_name": "claude-sonnet-4-5",
+            "initial_persona_prompt": "Execute tasks.",
+            "enabled_tools_json": [],
+            "status": "active",
+        },
+    )
+    assert agent_response.status_code == 201
+    agent_id = agent_response.json()["id"]
+
+    task_response = api_context.client.post(
+        "/api/v1/tasks",
+        json={
+            "project_id": api_context.project_id,
+            "title": "Guarded Task",
+            "assignee_agent_id": agent_id,
+        },
+    )
+    assert task_response.status_code == 201
+    task_id = task_response.json()["id"]
+
+    active_key = f"task-{task_id}-active-001"
+    with Session(api_context.engine) as session:
+        repository = TaskRunRepository(session)
+        run = repository.create_for_task(
+            task_id=task_id,
+            agent_id=agent_id,
+            idempotency_key=active_key,
+        )
+        assert run.id is not None
+        run = repository.mark_running(
+            run_id=run.id,
+            expected_version=run.version,
+        )
+        active_run_id = run.id
+
+    same_key_response = api_context.client.post(
+        f"/api/v1/tasks/{task_id}/run",
+        json={
+            "prompt": "重复请求",
+            "idempotency_key": active_key,
+        },
+    )
+    assert same_key_response.status_code == 200
+    same_key_payload = same_key_response.json()
+    assert same_key_payload["id"] == active_run_id
+    assert same_key_payload["run_status"] == TaskRunStatus.RUNNING.value
+
+    different_key_response = api_context.client.post(
+        f"/api/v1/tasks/{task_id}/run",
+        json={
+            "prompt": "新启动请求",
+            "idempotency_key": f"task-{task_id}-active-002",
+        },
+    )
+    assert different_key_response.status_code == 409
+    assert different_key_response.json()["error"]["code"] == "TASK_RUN_ALREADY_ACTIVE"
+
+
+def test_run_task_endpoint_writes_messages_to_bound_conversation(
+    api_context: ApiTestContext,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    fake_llm = SequenceLLMClient([_success_llm_response(session_id="task-run-conversation-1")])
+    monkeypatch.setattr(
+        "app.api.tasks.create_llm_client",
+        lambda **_: fake_llm,
+    )
+
+    agent_response = api_context.client.post(
+        "/api/v1/agents",
+        json={
+            "project_id": api_context.project_id,
+            "name": "Conversation Bound Agent",
+            "role": "executor",
+            "model_provider": "claude_code",
+            "model_name": "claude-sonnet-4-5",
+            "initial_persona_prompt": "Execute tasks.",
+            "enabled_tools_json": [],
+            "status": "active",
+        },
+    )
+    assert agent_response.status_code == 201
+    agent_id = agent_response.json()["id"]
+
+    task_response = api_context.client.post(
+        "/api/v1/tasks",
+        json={
+            "project_id": api_context.project_id,
+            "title": "Conversation Bound Task",
+            "assignee_agent_id": agent_id,
+        },
+    )
+    assert task_response.status_code == 201
+    task_id = task_response.json()["id"]
+
+    conversation_response = api_context.client.post(
+        "/api/v1/conversations",
+        json={
+            "project_id": api_context.project_id,
+            "agent_id": agent_id,
+            "task_id": task_id,
+            "title": f"Task #{task_id}: Conversation Bound Task",
+        },
+    )
+    assert conversation_response.status_code == 201
+    conversation_id = conversation_response.json()["id"]
+
+    prompt_text = "执行该任务并返回一句话总结"
+    run_response = api_context.client.post(
+        f"/api/v1/tasks/{task_id}/run",
+        json={
+            "prompt": prompt_text,
+            "session_id": "task-run-conversation-1",
+            "conversation_id": conversation_id,
+            "idempotency_key": f"task-{task_id}-run-conversation-001",
+            "trace_id": "trace-task-run-conversation-1",
+        },
+    )
+    assert run_response.status_code == 200
+    payload = run_response.json()
+    assert payload["run_status"] == "succeeded"
+
+    messages_response = api_context.client.get(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        params={"limit": 50},
+    )
+    assert messages_response.status_code == 200
+    messages_payload = messages_response.json()
+    items = messages_payload["items"]
+    assert len(items) == 2
+    assert items[0]["role"] == "user"
+    assert items[0]["message_type"] == "text"
+    assert items[0]["content"] == prompt_text
+    assert items[0]["metadata_json"]["source"] == "task_run"
+    assert items[0]["metadata_json"]["kind"] == "run_prompt"
+    assert items[1]["role"] == "assistant"
+    assert items[1]["message_type"] == "text"
+    assert items[1]["content"] == "任务执行完成"
+    assert items[1]["metadata_json"]["source"] == "task_run"
+    assert items[1]["metadata_json"]["kind"] == "run_result"
+    assert items[1]["metadata_json"]["run_status"] == "succeeded"
+    assert fake_llm.invocation_count == 1
 
 
 def test_run_task_endpoint_retryable_failure_schedules_retry(

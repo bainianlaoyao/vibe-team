@@ -24,6 +24,7 @@ from app.llm.providers.claude_code import (
     _extract_usage,
     _normalize_cost,
 )
+from app.llm.providers.claude_settings import resolve_claude_permission_mode
 
 
 # Mock classes for SDK interactions
@@ -188,6 +189,7 @@ def test_generate_uses_windows_default_cli_path_when_not_configured(monkeypatch)
 
     def factory(options):
         captured["cli_path"] = options.cli_path
+        captured["permission_mode"] = options.permission_mode
         return AsyncMockContextManager(client)
 
     monkeypatch.setattr("app.llm.providers.claude_settings.sys.platform", "win32")
@@ -206,6 +208,15 @@ def test_generate_uses_windows_default_cli_path_when_not_configured(monkeypatch)
 
     asyncio.run(run_test())
     assert captured["cli_path"] == "claude.cmd"
+    assert captured["permission_mode"] == "bypassPermissions"
+
+
+def test_resolve_claude_permission_mode_defaults_to_bypass(monkeypatch):
+    monkeypatch.delenv("CLAUDE_PERMISSION_MODE", raising=False)
+    assert resolve_claude_permission_mode() == "bypassPermissions"
+
+    monkeypatch.setenv("CLAUDE_PERMISSION_MODE", "plan")
+    assert resolve_claude_permission_mode() == "plan"
 
 
 def test_extract_last_user_prompt():

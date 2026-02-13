@@ -58,7 +58,11 @@ from app.db.repositories import MessageRepository, SessionRepository
 from app.db.session import session_scope
 from app.events.schemas import TASK_STATUS_CHANGED_EVENT_TYPE, build_task_status_payload
 from app.llm.providers.claude_code import CLAUDE_PROVIDER_NAME
-from app.llm.providers.claude_settings import resolve_claude_auth, resolve_claude_cli_path
+from app.llm.providers.claude_settings import (
+    resolve_claude_auth,
+    resolve_claude_cli_path,
+    resolve_claude_permission_mode,
+)
 from app.security import SecureFileGateway
 
 router = APIRouter(tags=["ws_conversations"])
@@ -532,6 +536,7 @@ def _create_claude_session_client(state: ConnectionState) -> ClaudeSessionClient
         model=state.model_name,
         system_prompt=state.system_prompt or None,
         max_turns=state.settings.claude_default_max_turns,
+        permission_mode=resolve_claude_permission_mode(),
         cwd=state.workspace_root,
         settings=str(auth.settings_path) if auth.settings_path else None,
         env=auth.env,

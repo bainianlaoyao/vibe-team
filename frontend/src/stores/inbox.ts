@@ -37,6 +37,7 @@ export const useInboxStore = defineStore('inbox', () => {
         from: row.resolver || row.source_type,
         time: formatRelativeTime(row.created_at),
         read: row.is_read,
+        itemType: row.item_type,
         status: row.status,
       }));
       if (selectedId.value === null && items.value.length > 0) {

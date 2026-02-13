@@ -178,3 +178,49 @@ Phase 10 验收：
 1. [ ] 新增任务变更详情接口：`GET /api/v1/tasks/{task_id}/changes`，返回 `files_changed`、`diff_add`、`diff_del`、`last_changed_at`。
 2. [ ] 新增任务变更汇总接口：`GET /api/v1/tasks/changes/summary?project_id=...`，用于 `table/kanban` 批量渲染，避免 N+1 请求。
 3. [ ] 前端任务视图切换到新接口后，移除当前基于 `updates` 的近实时聚合兼容逻辑。
+
+---
+
+## 任务发射与会话输出对齐（2026-02-13）
+
+背景：
+1. 发射流程已实现“任务绑定会话 + 启动 run”，但 Chat 历史最初为空，用户难以确认任务运行产出。
+2. 根因是 `POST /api/v1/tasks/{task_id}/run` 不会把运行内容写入 `conversations/{id}/messages`。
+
+已完成：
+1. [x] `POST /api/v1/tasks/{task_id}/run` 新增可选 `conversation_id` 参数，并校验 conversation 与 task/agent/project 一致性。
+2. [x] 当传入 `conversation_id` 时，后端会把本次运行的 prompt 与结果摘要写入该会话消息流。
+3. [x] 前端 `agents/table` 与 `agents/kanban` 发射时传入 `conversation_id`，确保后续在 Chat 可直接看到运行输出。
+
+---
+
+## 任务发射稳定性修复（2026-02-13）
+
+背景：
+1. 用户反馈发射后出现 `Run X has no output for at least 600 seconds`，简单任务也会进入超时告警。
+2. 主要风险点为重复发射造成并发 run，以及服务重启后遗留 `running` run 未自动收敛。
+
+已完成：
+1. [x] `POST /api/v1/tasks/{task_id}/run` 增加同任务活跃 run 并发保护：不同 `idempotency_key` 再次发射返回 `409 TASK_RUN_ALREADY_ACTIVE`。
+2. [x] 对相同 `idempotency_key` 的重放请求在活跃运行中复用既有 run，避免重复执行。
+3. [x] 应用启动时自动执行 inflight recovery：将遗留 `running` run 标记为 `interrupted`，避免长期卡死。
+4. [x] stuck detector 自动关闭已失效的 `stuck:idle:*` inbox 告警（对应 run 不再处于 `running`）。
+5. [x] 前端任务发射改为等待 `runTask` 完成后再解除按钮锁，避免同任务快速重复发射。
+
+---
+
+## Claude 权限模式调整（2026-02-13）
+
+已完成：
+1. [x] 后端 Claude SDK 调用默认使用 `bypassPermissions`（危险跳过权限）模式，运行中不再弹出权限确认。
+2. [x] WebSocket conversation 链路与普通 task run 链路保持一致，统一为 `bypassPermissions`。
+3. [x] 增加环境变量 `CLAUDE_PERMISSION_MODE`（默认 `bypassPermissions`）用于显式覆盖。
+
+---
+
+## 任务完成 Inbox 通知与确认（2026-02-13）
+
+已完成：
+1. [x] `task run` 成功后会自动创建 `task_completed` inbox 项，不再出现“任务完成无播报”。
+2. [x] `task_completed` inbox 确认关闭时，后端自动尝试将任务从 `review` 迁移到 `done` 并记录 `task.status.changed` 事件。
+3. [x] 前端 `Inbox` 页面为 `task_completed` 项增加显式 `Confirm` 按钮，确认后关闭通知并触发后端确认流程。

@@ -38,9 +38,17 @@ from app.core.config import get_settings
 from app.core.logging import TraceContextMiddleware, configure_logging
 from app.db.bootstrap import initialize_database
 from app.db.engine import dispose_engine, get_engine
-from app.runtime import build_stuck_run_detector, run_stuck_detector_loop
+from app.db.session import session_scope
+from app.llm.contracts import LLMRequest, LLMResponse
+from app.runtime import TaskRunRuntimeService, build_stuck_run_detector, run_stuck_detector_loop
 
 logger = logging.getLogger(__name__)
+
+
+class _StartupRecoveryNoopLLMClient:
+    async def generate(self, request: LLMRequest) -> LLMResponse:
+        _ = request
+        raise RuntimeError("Startup recovery client does not support runtime execution.")
 
 
 def create_app() -> FastAPI:
@@ -61,6 +69,22 @@ def create_app() -> FastAPI:
                 project_root=settings.project_root,
             )
         get_engine()
+        if settings.app_env != "test":
+            with session_scope() as session:
+                runtime_service = TaskRunRuntimeService(
+                    llm_client=_StartupRecoveryNoopLLMClient(),
+                )
+                interrupted = runtime_service.interrupt_inflight_runs(
+                    session=session,
+                    trace_id="trace-runtime-startup-recovery",
+                )
+                if interrupted:
+                    logger.warning(
+                        "runtime.startup.interrupted_inflight_runs count=%s run_ids=%s",
+                        len(interrupted),
+                        [run.id for run in interrupted if run.id is not None],
+                    )
+
         detector_task: asyncio.Task[None] | None = None
         detector = build_stuck_run_detector(settings)
         detector_task = asyncio.create_task(

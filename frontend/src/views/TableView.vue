@@ -143,29 +143,22 @@ const launchTaskConversation = async (task: Task) => {
         title: buildConversationTitle(task),
       }));
 
-    void api
-      .runTask(task.apiId, {
-        prompt: buildRunPrompt(task),
-        session_id: `conversation-${target.id}`,
-        trace_id: buildLaunchTraceId(task.apiId, target.id),
-        idempotency_key: buildLaunchIdempotencyKey(task.apiId, target.id),
-        actor: 'frontend.launch',
-      })
-      .then(() => tasksStore.fetchTasks())
-      .catch(cause => {
-        const apiError = cause instanceof ApiRequestError ? cause : null;
-        launchTaskError.value = apiError
-          ? `${apiError.code}: ${apiError.message}`
-          : 'Failed to start task run after launching.';
-      });
+    await api.runTask(task.apiId, {
+      prompt: buildRunPrompt(task),
+      session_id: `conversation-${target.id}`,
+      conversation_id: target.id,
+      trace_id: buildLaunchTraceId(task.apiId, target.id),
+      idempotency_key: buildLaunchIdempotencyKey(task.apiId, target.id),
+      actor: 'frontend.launch',
+    });
 
     launchTaskInfo.value = `Task #${task.apiId} launched. Open it from Chat conversation list when needed.`;
-    void tasksStore.fetchTasks();
+    await tasksStore.fetchTasks();
   } catch (cause) {
     const apiError = cause instanceof ApiRequestError ? cause : null;
     launchTaskError.value = apiError
       ? `${apiError.code}: ${apiError.message}`
-      : 'Failed to launch task conversation.';
+      : 'Failed to launch task conversation and start task run.';
   } finally {
     launchingTaskId.value = null;
   }

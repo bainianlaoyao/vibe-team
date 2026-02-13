@@ -232,6 +232,7 @@ def test_create_claude_session_client_uses_windows_default_cli_path(
 
     def fake_sdk_client(*, options: Any) -> Any:
         captured["cli_path"] = options.cli_path
+        captured["permission_mode"] = options.permission_mode
         return object()
 
     monkeypatch.setattr("app.llm.providers.claude_settings.sys.platform", "win32")
@@ -259,6 +260,7 @@ def test_create_claude_session_client_uses_windows_default_cli_path(
 
     _ = ws_api._create_claude_session_client(state)
     assert captured["cli_path"] == "claude.cmd"
+    assert captured["permission_mode"] == "bypassPermissions"
 
 
 def test_threaded_claude_session_client_supports_selector_loop() -> None:

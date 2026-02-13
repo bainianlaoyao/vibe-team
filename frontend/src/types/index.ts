@@ -71,6 +71,7 @@ export interface InboxItem {
   from: string;
   time: string;
   read: boolean;
+  itemType: string;
   status: 'open' | 'closed';
 }
 

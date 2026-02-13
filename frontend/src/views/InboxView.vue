@@ -1,10 +1,16 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { PhCheck, PhDotsThree, PhEnvelope, PhTrash } from '@phosphor-icons/vue';
 import { useInboxStore } from '../stores/inbox';
 
 const inboxStore = useInboxStore();
 const userInput = ref<string>('');
+const selectedIsTaskCompleted = computed(
+  () => inboxStore.selectedItem?.itemType === 'task_completed',
+);
+const selectedRequiresInput = computed(
+  () => inboxStore.selectedItem?.itemType === 'await_user_input',
+);
 
 onMounted(async () => {
   await inboxStore.fetchInbox();
@@ -22,6 +28,12 @@ const closeSelected = async () => {
   if (!inboxStore.selectedItem) return;
   const input = userInput.value.trim() || undefined;
   await inboxStore.closeItem(inboxStore.selectedItem, input);
+  userInput.value = '';
+};
+
+const confirmSelectedTask = async () => {
+  if (!inboxStore.selectedItem || !selectedIsTaskCompleted.value) return;
+  await inboxStore.closeItem(inboxStore.selectedItem);
   userInput.value = '';
 };
 </script>
@@ -70,6 +82,15 @@ const closeSelected = async () => {
             </div>
             <div class="flex items-center gap-2">
               <button
+                v-if="selectedIsTaskCompleted"
+                class="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-bg-tertiary"
+                @click="confirmSelectedTask"
+              >
+                <PhCheck :size="14" />
+                Confirm
+              </button>
+              <button
+                v-if="!selectedIsTaskCompleted"
                 class="p-2 rounded-lg hover:bg-bg-tertiary text-text-secondary"
                 aria-label="Close inbox item"
                 @click="closeSelected"
@@ -91,8 +112,8 @@ const closeSelected = async () => {
           <div class="prose prose-sm text-text-secondary">
             <p>{{ inboxStore.selectedItem.preview }}</p>
           </div>
-          <div class="mt-4">
-            <label class="text-xs text-text-tertiary uppercase tracking-wide">User Input (optional)</label>
+          <div v-if="selectedRequiresInput" class="mt-4">
+            <label class="text-xs text-text-tertiary uppercase tracking-wide">User Input (required)</label>
             <textarea
               id="inbox-user-input"
               v-model="userInput"
@@ -105,6 +126,15 @@ const closeSelected = async () => {
               @click="closeSelected"
             >
               Close Item
+            </button>
+          </div>
+          <div v-else-if="selectedIsTaskCompleted" class="mt-4">
+            <button
+              class="inline-flex items-center gap-2 rounded-md bg-brand px-3 py-2 text-xs text-white hover:bg-brand/90"
+              @click="confirmSelectedTask"
+            >
+              <PhCheck :size="14" />
+              Confirm Completion
             </button>
           </div>
         </div>

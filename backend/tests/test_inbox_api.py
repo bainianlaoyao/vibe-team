@@ -12,8 +12,8 @@ from sqlmodel import Session, SQLModel, select
 
 from app.core.config import get_settings
 from app.db.engine import create_engine_from_url, dispose_engine
-from app.db.enums import InboxItemType, SourceType
-from app.db.models import Event, InboxItem, Project
+from app.db.enums import InboxItemType, SourceType, TaskStatus
+from app.db.models import Event, InboxItem, Project, Task
 from app.db.repositories import InboxRepository
 from app.main import create_app
 
@@ -165,11 +165,24 @@ def test_await_user_input_flow_requires_input_and_records_events(
 def test_task_completed_flow_closes_without_user_input(
     inbox_api_context: InboxApiContext,
 ) -> None:
+    with Session(inbox_api_context.engine) as session:
+        task = Task(
+            project_id=inbox_api_context.project_id,
+            title="Await completion confirmation",
+            status=TaskStatus.REVIEW,
+            priority=3,
+        )
+        session.add(task)
+        session.commit()
+        session.refresh(task)
+        assert task.id is not None
+        task_id = task.id
+
     item_id = _create_inbox_item(
         inbox_api_context.engine,
         project_id=inbox_api_context.project_id,
         item_type=InboxItemType.TASK_COMPLETED,
-        source_id="task:done-1",
+        source_id=f"task:{task_id}",
         title="Task completed confirmation",
     )
 
@@ -187,5 +200,8 @@ def test_task_completed_flow_closes_without_user_input(
         events = list(session.exec(select(Event)).all())
         events.sort(key=lambda event: event.id or 0)
         event_types = [event.event_type for event in events]
-        assert event_types == ["inbox.item.created", "inbox.item.closed"]
+        assert event_types == ["inbox.item.created", "task.status.changed", "inbox.item.closed"]
         assert "user.input.submitted" not in event_types
+        task_row = session.get(Task, task_id)
+        assert task_row is not None
+        assert task_row.status == TaskStatus.DONE

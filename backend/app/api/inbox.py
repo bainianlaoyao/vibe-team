@@ -10,9 +10,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.api.errors import ApiException, error_response_docs
-from app.db.enums import InboxItemType, InboxStatus
-from app.db.models import Event, InboxItem, utc_now
+from app.db.enums import InboxItemType, InboxStatus, TaskStatus
+from app.db.models import Event, InboxItem, Task, utc_now
 from app.db.session import get_session
+from app.events.schemas import TASK_STATUS_CHANGED_EVENT_TYPE, build_task_status_payload
+from app.orchestration.state_machine import InvalidTaskTransitionError, ensure_status_transition
 
 INBOX_ITEM_CLOSED_EVENT_TYPE = "inbox.item.closed"
 INBOX_ITEM_READ_EVENT_TYPE = "inbox.item.read"
@@ -127,6 +129,64 @@ def _list_read_item_ids(session: Session, *, project_id: int | None = None) -> s
     return read_item_ids
 
 
+def _parse_task_source_id(source_id: str) -> int | None:
+    prefix = "task:"
+    if not source_id.startswith(prefix):
+        return None
+    raw_task_id = source_id.removeprefix(prefix)
+    if not raw_task_id.isdigit():
+        return None
+    task_id = int(raw_task_id)
+    return task_id if task_id > 0 else None
+
+
+def _confirm_task_completion_if_possible(
+    *,
+    session: Session,
+    item: InboxItem,
+    resolver: str,
+    trace_id: str | None,
+) -> bool:
+    item_type = _enum_value(item.item_type)
+    source_type = _enum_value(item.source_type)
+    if item_type != InboxItemType.TASK_COMPLETED.value or source_type != "task":
+        return False
+
+    task_id = _parse_task_source_id(item.source_id)
+    if task_id is None:
+        return False
+
+    task = session.get(Task, task_id)
+    if task is None or task.project_id != item.project_id or task.id is None:
+        return False
+
+    current_status = TaskStatus(str(task.status))
+    if current_status == TaskStatus.DONE:
+        return True
+    try:
+        ensure_status_transition(current_status, TaskStatus.DONE)
+    except InvalidTaskTransitionError:
+        return False
+
+    task.status = TaskStatus.DONE
+    task.updated_at = utc_now()
+    task.version += 1
+    session.add(
+        Event(
+            project_id=task.project_id,
+            event_type=TASK_STATUS_CHANGED_EVENT_TYPE,
+            payload_json=build_task_status_payload(
+                task_id=task.id,
+                previous_status=current_status,
+                status=TaskStatus.DONE,
+                actor=resolver,
+            ),
+            trace_id=trace_id,
+        )
+    )
+    return True
+
+
 @router.get(
     "",
     response_model=list[InboxItemRead],
@@ -232,6 +292,12 @@ def close_inbox_item(item_id: int, payload: InboxCloseRequest, session: DbSessio
 
     resolver = _normalized_optional_text(payload.resolver) or DEFAULT_RESOLVER
     source_type = _enum_value(item.source_type)
+    task_confirmed = _confirm_task_completion_if_possible(
+        session=session,
+        item=item,
+        resolver=resolver,
+        trace_id=payload.trace_id,
+    )
     previous_status = current_status
     item.status = InboxStatus.CLOSED
     item.resolved_at = utc_now()
@@ -249,6 +315,7 @@ def close_inbox_item(item_id: int, payload: InboxCloseRequest, session: DbSessio
         "resolver": resolver,
         "version": item.version,
         "user_input_submitted": user_input is not None,
+        "task_confirmed": task_confirmed,
     }
     session.add(
         Event(

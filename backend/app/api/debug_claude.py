@@ -18,7 +18,7 @@ from app.core.config import get_settings
 from app.llm.contracts import LLMMessage, LLMRequest, LLMRole, StreamEvent, StreamingLLMClient
 from app.llm.factory import create_llm_client
 from app.llm.providers.claude_code import ClaudeCodeAdapter
-from app.llm.providers.claude_settings import resolve_claude_auth
+from app.llm.providers.claude_settings import resolve_claude_auth, resolve_claude_permission_mode
 
 router = APIRouter(prefix="/debug", tags=["debug_claude"])
 
@@ -71,6 +71,7 @@ async def test_claude_in_uvicorn() -> dict[str, Any]:
             model="claude-sonnet-4-20250514",
             cwd=str(Path.home()),
             max_turns=1,
+            permission_mode=resolve_claude_permission_mode(),
         )
         async with ClaudeSDKClient(options=options) as client:
             results["sdk_client_creation"] = {"success": True, "client_type": str(type(client))}
@@ -88,6 +89,7 @@ async def test_claude_in_uvicorn() -> dict[str, Any]:
             model="claude-sonnet-4-20250514",
             cwd=str(Path.home()),
             max_turns=1,
+            permission_mode=resolve_claude_permission_mode(),
         )
         async with ClaudeSDKClient(options=options) as client:
             await client.query("Say 'uvicorn test OK'", session_id="uvicorn-debug")

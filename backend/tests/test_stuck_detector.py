@@ -73,6 +73,32 @@ def test_idle_timeout_detection_creates_single_alert(tmp_path: Path) -> None:
         assert len(alert_events) == 1
         assert alert_events[0].payload_json["code"] == "RUN_IDLE_TIMEOUT"
 
+        run.run_status = TaskRunStatus.INTERRUPTED
+        run.ended_at = now + timedelta(minutes=2)
+        session.add(run)
+        session.commit()
+
+        resolved = detector.run_once(
+            session=session,
+            now=now + timedelta(minutes=3),
+            trace_id="trace-stuck-idle-resolved",
+        )
+        assert resolved == []
+
+        open_items = session.exec(
+            select(InboxItem).where(InboxItem.status == InboxStatus.OPEN.value)
+        ).all()
+        assert open_items == []
+        closed_items = session.exec(
+            select(InboxItem).where(InboxItem.status == InboxStatus.CLOSED.value)
+        ).all()
+        assert len(closed_items) == 1
+        closed_events = session.exec(
+            select(Event).where(Event.event_type == "inbox.item.closed")
+        ).all()
+        assert len(closed_events) == 1
+        assert closed_events[0].payload_json["auto_closed"] is True
+
     engine.dispose()
 
 

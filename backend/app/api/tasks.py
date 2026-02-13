@@ -15,10 +15,35 @@ from sqlmodel import Session, select
 from app.api.errors import ApiException, error_response_docs
 from app.core.config import get_settings
 from app.core.logging import bind_log_context, get_logger
-from app.db.enums import TASK_RUN_TERMINAL_STATUSES, TaskRunStatus, TaskStatus
-from app.db.models import Agent, Event, Project, Task, TaskRun, utc_now
+from app.db.enums import (
+    TASK_RUN_TERMINAL_STATUSES,
+    ConversationStatus,
+    InboxItemType,
+    InboxStatus,
+    MessageRole,
+    MessageType,
+    SourceType,
+    TaskRunStatus,
+    TaskStatus,
+)
+from app.db.models import (
+    Agent,
+    Conversation,
+    Event,
+    InboxItem,
+    Message,
+    Project,
+    Task,
+    TaskRun,
+    utc_now,
+)
+from app.db.repositories import MessageRepository
 from app.db.session import get_session
-from app.events.schemas import TASK_STATUS_CHANGED_EVENT_TYPE, build_task_status_payload
+from app.events.schemas import (
+    RUN_LOG_EVENT_TYPE,
+    TASK_STATUS_CHANGED_EVENT_TYPE,
+    build_task_status_payload,
+)
 from app.exporters import sync_tasks_markdown_for_project_if_enabled
 from app.llm import (
     LLMErrorCode,
@@ -42,6 +67,12 @@ from app.security import SecurityAuditOutcome, append_security_audit_event
 DEFAULT_TASK_EVENT_ACTOR = "api"
 TASK_INTERVENTION_AUDIT_EVENT_TYPE = "task.intervention.audit"
 MAX_BROADCAST_TASKS = 200
+ACTIVE_TASK_RUN_STATUSES: tuple[TaskRunStatus, ...] = (
+    TaskRunStatus.QUEUED,
+    TaskRunStatus.RUNNING,
+    TaskRunStatus.RETRY_SCHEDULED,
+)
+INBOX_ITEM_CREATED_EVENT_TYPE = "inbox.item.created"
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 logger = get_logger("bbb.api.tasks")
@@ -232,6 +263,7 @@ class TaskRunExecuteRequest(BaseModel):
     model: str | None = Field(default=None, min_length=1, max_length=120)
     system_prompt: str | None = Field(default=None, max_length=4000)
     session_id: str | None = Field(default=None, min_length=1, max_length=120)
+    conversation_id: int | None = Field(default=None, ge=1)
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=80)
     max_turns: int | None = Field(default=None, ge=1, le=128)
     timeout_seconds: float | None = Field(default=None, gt=0, le=600)
@@ -244,6 +276,7 @@ class TaskRunExecuteRequest(BaseModel):
                 "provider": "claude_code",
                 "model": "claude-sonnet-4-5",
                 "session_id": "task-22",
+                "conversation_id": 17,
                 "idempotency_key": "task-22-request-001",
                 "max_turns": 6,
                 "timeout_seconds": 90,
@@ -542,6 +575,242 @@ def _resolve_task_assignee(task: Task, session: Session) -> Agent:
             "Task assignee agent is missing or does not belong to the same project.",
         )
     return agent
+
+
+def _resolve_task_run_conversation(
+    *,
+    session: Session,
+    task: Task,
+    assignee: Agent,
+    conversation_id: int | None,
+) -> Conversation | None:
+    if conversation_id is None:
+        return None
+    conversation = session.get(Conversation, conversation_id)
+    if conversation is None:
+        raise ApiException(
+            status.HTTP_404_NOT_FOUND,
+            "CONVERSATION_NOT_FOUND",
+            f"Conversation {conversation_id} does not exist.",
+        )
+    if conversation.status == ConversationStatus.CLOSED:
+        raise ApiException(
+            status.HTTP_409_CONFLICT,
+            "CONVERSATION_CLOSED",
+            "Cannot bind task run to a closed conversation.",
+        )
+    if conversation.project_id != task.project_id:
+        raise ApiException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "INVALID_CONVERSATION_CONTEXT",
+            "Conversation must belong to the same project as task.",
+        )
+    if conversation.agent_id != assignee.id:
+        raise ApiException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "INVALID_CONVERSATION_CONTEXT",
+            "Conversation must belong to the task assignee agent.",
+        )
+    if conversation.task_id != task.id:
+        raise ApiException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "INVALID_CONVERSATION_CONTEXT",
+            "Conversation must be bound to the same task.",
+        )
+    return conversation
+
+
+def _find_latest_active_task_run(*, session: Session, task_id: int) -> TaskRun | None:
+    run_id_column = cast(Any, TaskRun.id)
+    statement = (
+        select(TaskRun)
+        .where(TaskRun.task_id == task_id)
+        .where(
+            cast(Any, TaskRun.run_status).in_(
+                [run_status.value for run_status in ACTIVE_TASK_RUN_STATUSES]
+            )
+        )
+        .order_by(run_id_column.desc())
+        .limit(1)
+    )
+    return session.exec(statement).first()
+
+
+def _resolve_run_output_message(*, session: Session, run_id: int) -> str | None:
+    event_id_column = cast(Any, Event.id)
+    events = list(
+        session.exec(
+            select(Event)
+            .where(Event.event_type == RUN_LOG_EVENT_TYPE)
+            .order_by(event_id_column.desc())
+            .limit(300)
+        ).all()
+    )
+    for event in events:
+        payload = event.payload_json if isinstance(event.payload_json, dict) else {}
+        if payload.get("run_id") != run_id:
+            continue
+        message = _normalized_optional_text(cast(str | None, payload.get("message")))
+        if message is not None:
+            return message
+    return None
+
+
+def _build_task_run_summary_text(
+    *,
+    session: Session,
+    run: TaskRun,
+    run_status: TaskRunStatus,
+) -> str:
+    if run_status == TaskRunStatus.SUCCEEDED and run.id is not None:
+        output = _resolve_run_output_message(session=session, run_id=run.id)
+        if output is not None:
+            return output
+        return "Task run succeeded, but no textual output was captured."
+
+    error_message = _normalized_optional_text(run.error_message)
+    if error_message is not None:
+        return f"Task run {run_status.value}: {error_message}"
+    return f"Task run {run_status.value}."
+
+
+def _append_task_run_messages_to_conversation(
+    *,
+    session: Session,
+    conversation: Conversation,
+    task: Task,
+    run: TaskRun,
+    run_status: TaskRunStatus,
+    prompt: str,
+    trace_id: str | None,
+) -> None:
+    conversation_id = conversation.id
+    run_id = run.id
+    task_id = task.id
+    if conversation_id is None or run_id is None or task_id is None:
+        return
+
+    normalized_prompt = _normalized_optional_text(prompt)
+    if normalized_prompt is None:
+        return
+
+    summary_text = _build_task_run_summary_text(
+        session=session,
+        run=run,
+        run_status=run_status,
+    )
+
+    repo = MessageRepository(session)
+    sequence_num = repo.get_next_sequence_num(conversation_id)
+    base_metadata: dict[str, Any] = {
+        "source": "task_run",
+        "task_id": task_id,
+        "run_id": run_id,
+        "trace_id": _normalized_optional_text(trace_id),
+    }
+
+    session.add(
+        Message(
+            conversation_id=conversation_id,
+            role=MessageRole.USER,
+            message_type=MessageType.TEXT,
+            content=normalized_prompt,
+            metadata_json={**base_metadata, "kind": "run_prompt"},
+            sequence_num=sequence_num,
+        )
+    )
+    session.add(
+        Message(
+            conversation_id=conversation_id,
+            role=MessageRole.ASSISTANT,
+            message_type=MessageType.TEXT,
+            content=summary_text,
+            metadata_json={**base_metadata, "kind": "run_result", "run_status": run_status.value},
+            sequence_num=sequence_num + 1,
+        )
+    )
+    conversation.updated_at = utc_now()
+    conversation.version += 1
+
+
+def _task_completed_inbox_source_id(*, task_id: int) -> str:
+    return f"task:{task_id}"
+
+
+def _has_open_task_completed_inbox_item(
+    *,
+    session: Session,
+    project_id: int,
+    task_id: int,
+) -> bool:
+    source_id = _task_completed_inbox_source_id(task_id=task_id)
+    existing_item = session.exec(
+        select(InboxItem.id)
+        .where(InboxItem.project_id == project_id)
+        .where(InboxItem.source_type == SourceType.TASK.value)
+        .where(InboxItem.source_id == source_id)
+        .where(InboxItem.item_type == InboxItemType.TASK_COMPLETED.value)
+        .where(InboxItem.status == InboxStatus.OPEN.value)
+        .limit(1)
+    ).first()
+    return existing_item is not None
+
+
+def _append_task_completed_inbox_item(
+    *,
+    session: Session,
+    task: Task,
+    run: TaskRun,
+    run_status: TaskRunStatus,
+    trace_id: str | None,
+) -> None:
+    if run_status != TaskRunStatus.SUCCEEDED or task.id is None or run.id is None:
+        return
+    if _has_open_task_completed_inbox_item(
+        session=session,
+        project_id=task.project_id,
+        task_id=task.id,
+    ):
+        return
+
+    summary_text = _build_task_run_summary_text(
+        session=session,
+        run=run,
+        run_status=run_status,
+    )
+    source_id = _task_completed_inbox_source_id(task_id=task.id)
+    inbox_item = InboxItem(
+        project_id=task.project_id,
+        source_type=SourceType.TASK,
+        source_id=source_id,
+        item_type=InboxItemType.TASK_COMPLETED,
+        title=f"Task #{task.id} completed, waiting for confirmation",
+        content=summary_text,
+        status=InboxStatus.OPEN,
+    )
+    session.add(inbox_item)
+    session.flush()
+
+    if inbox_item.id is None:
+        return
+    session.add(
+        Event(
+            project_id=task.project_id,
+            event_type=INBOX_ITEM_CREATED_EVENT_TYPE,
+            payload_json={
+                "item_id": inbox_item.id,
+                "project_id": task.project_id,
+                "item_type": InboxItemType.TASK_COMPLETED.value,
+                "source_type": SourceType.TASK.value,
+                "source_id": source_id,
+                "title": inbox_item.title,
+                "status": InboxStatus.OPEN.value,
+                "task_id": task.id,
+                "run_id": run.id,
+            },
+            trace_id=trace_id,
+        )
+    )
 
 
 def _transition_task_status_for_run(
@@ -1080,12 +1349,39 @@ def run_task(
     task = _get_task_or_404(session, task_id)
     bind_log_context(trace_id=payload.trace_id, task_id=task_id)
     assignee = _resolve_task_assignee(task, session)
+    conversation = _resolve_task_run_conversation(
+        session=session,
+        task=task,
+        assignee=assignee,
+        conversation_id=payload.conversation_id,
+    )
 
     provider = _normalized_optional_text(payload.provider) or assignee.model_provider
     model = _normalized_optional_text(payload.model) or assignee.model_name
     idempotency_key = _normalized_optional_text(payload.idempotency_key) or (
         f"task-{task_id}-request-{uuid4().hex}"
     )
+    active_run = _find_latest_active_task_run(session=session, task_id=task_id)
+    if active_run is not None:
+        active_status = _to_task_run_status(active_run.run_status)
+        active_run_id = active_run.id
+        if active_run.idempotency_key != idempotency_key:
+            raise ApiException(
+                status.HTTP_409_CONFLICT,
+                "TASK_RUN_ALREADY_ACTIVE",
+                (
+                    f"Task {task_id} already has an active run {active_run_id} "
+                    f"({active_status.value})."
+                ),
+            )
+        if active_status in {TaskRunStatus.RUNNING, TaskRunStatus.RETRY_SCHEDULED}:
+            logger.info(
+                "task.run.reuse_active",
+                task_id=task_id,
+                run_id=active_run_id,
+                run_status=active_status.value,
+            )
+            return TaskRunRead.model_validate(active_run)
 
     try:
         llm_client = create_llm_client(provider=provider, settings=get_settings())
@@ -1142,6 +1438,25 @@ def run_task(
         trace_id=payload.trace_id,
         actor=payload.actor,
     )
+
+    if conversation is not None:
+        _append_task_run_messages_to_conversation(
+            session=session,
+            conversation=conversation,
+            task=task,
+            run=run,
+            run_status=run_status,
+            prompt=payload.prompt,
+            trace_id=payload.trace_id,
+        )
+    if run_status == TaskRunStatus.SUCCEEDED and target_status == TaskStatus.REVIEW:
+        _append_task_completed_inbox_item(
+            session=session,
+            task=task,
+            run=run,
+            run_status=run_status,
+            trace_id=payload.trace_id,
+        )
 
     persisted_run = session.get(TaskRun, run.id)
     if persisted_run is None:

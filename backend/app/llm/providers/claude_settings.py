@@ -5,6 +5,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal, cast
 
 AUTH_ENV_KEYS: tuple[str, ...] = (
     "ANTHROPIC_API_KEY",
@@ -14,6 +15,11 @@ AUTH_ENV_KEYS: tuple[str, ...] = (
     "CLAUDE_CODE_USE_VERTEX",
     "CLAUDE_CODE_USE_FOUNDRY",
 )
+ClaudePermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions"]
+_SUPPORTED_PERMISSION_MODES: frozenset[str] = frozenset(
+    {"default", "acceptEdits", "plan", "bypassPermissions"}
+)
+_DEFAULT_PERMISSION_MODE: ClaudePermissionMode = "bypassPermissions"
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +51,16 @@ def resolve_claude_settings_path(path_override: str | Path | None = None) -> Pat
     if default_path.exists() and default_path.is_file():
         return default_path.resolve()
     return None
+
+
+def resolve_claude_permission_mode(mode_override: str | None = None) -> ClaudePermissionMode:
+    candidate = mode_override
+    if candidate is None:
+        candidate = os.getenv("CLAUDE_PERMISSION_MODE")
+    normalized = (candidate or "").strip()
+    if normalized in _SUPPORTED_PERMISSION_MODES:
+        return cast(ClaudePermissionMode, normalized)
+    return _DEFAULT_PERMISSION_MODE
 
 
 def _load_settings_env(settings_path: Path | None) -> dict[str, str]:

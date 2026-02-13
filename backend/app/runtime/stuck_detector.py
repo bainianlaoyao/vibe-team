@@ -18,6 +18,8 @@ from app.db.session import session_scope
 from app.events.schemas import ALERT_RAISED_EVENT_TYPE, RUN_LOG_EVENT_TYPE
 
 _INBOX_ITEM_CREATED_EVENT_TYPE = "inbox.item.created"
+_INBOX_ITEM_CLOSED_EVENT_TYPE = "inbox.item.closed"
+_AUTOMATED_RESOLVER = "system:stuck-detector"
 _ERROR_WINDOW_SIZE = 10
 _REPEAT_WINDOW_SIZE = 6
 _MIN_ERROR_RATE_SAMPLES = 3
@@ -70,6 +72,13 @@ class StuckRunDetector:
     ) -> list[StuckAlert]:
         detector_now = _normalize_utc_datetime(now or datetime.now(UTC))
         run_logs = _load_recent_run_logs(session=session)
+        closed_count = self._auto_close_resolved_idle_alerts(
+            session=session,
+            now=detector_now,
+            trace_id=trace_id,
+        )
+        if closed_count > 0:
+            logger.info("stuck_detector.alerts_auto_closed", count=closed_count)
 
         alerts: list[StuckAlert] = []
         alerts.extend(
@@ -105,6 +114,90 @@ class StuckRunDetector:
                     task_id=alert.task_id,
                 )
         return applied
+
+    def _auto_close_resolved_idle_alerts(
+        self,
+        *,
+        session: Session,
+        now: datetime,
+        trace_id: str | None,
+    ) -> int:
+        open_idle_items = list(
+            session.exec(
+                select(InboxItem)
+                .where(InboxItem.source_type == SourceType.SYSTEM.value)
+                .where(InboxItem.status == InboxStatus.OPEN.value)
+                .where(cast(Any, InboxItem.source_id).like("stuck:idle:%"))
+            ).all()
+        )
+
+        closed_count = 0
+        for item in open_idle_items:
+            run_id = _parse_idle_alert_run_id(item.source_id)
+            if run_id is None:
+                continue
+            run = session.get(TaskRun, run_id)
+            if run is None:
+                self._close_alert_item(
+                    session=session,
+                    item=item,
+                    now=now,
+                    trace_id=trace_id,
+                    reason="run_not_found",
+                )
+                closed_count += 1
+                continue
+
+            run_status = TaskRunStatus(str(run.run_status))
+            if run_status == TaskRunStatus.RUNNING:
+                continue
+            self._close_alert_item(
+                session=session,
+                item=item,
+                now=now,
+                trace_id=trace_id,
+                reason=f"run_status={run_status.value}",
+            )
+            closed_count += 1
+
+        if closed_count > 0:
+            session.commit()
+        return closed_count
+
+    def _close_alert_item(
+        self,
+        *,
+        session: Session,
+        item: InboxItem,
+        now: datetime,
+        trace_id: str | None,
+        reason: str,
+    ) -> None:
+        previous_status = InboxStatus.OPEN.value
+        item.status = InboxStatus.CLOSED
+        item.resolved_at = now
+        item.resolver = _AUTOMATED_RESOLVER
+        item.version += 1
+        session.add(
+            Event(
+                project_id=item.project_id,
+                event_type=_INBOX_ITEM_CLOSED_EVENT_TYPE,
+                payload_json={
+                    "item_id": item.id,
+                    "project_id": item.project_id,
+                    "source_type": SourceType.SYSTEM.value,
+                    "source_id": item.source_id,
+                    "item_type": InboxItemType.AWAIT_USER_INPUT.value,
+                    "previous_status": previous_status,
+                    "status": InboxStatus.CLOSED.value,
+                    "resolver": _AUTOMATED_RESOLVER,
+                    "version": item.version,
+                    "auto_closed": True,
+                    "reason": reason,
+                },
+                trace_id=trace_id,
+            )
+        )
 
     def _detect_idle_timeout_alerts(
         self,
@@ -444,6 +537,17 @@ def _resolve_project_id_for_task(
 def _build_inbox_content(alert: StuckAlert) -> str:
     details = ", ".join(f"{key}={value}" for key, value in sorted(alert.diagnostics.items()))
     return f"{alert.message}\n\nDiagnostics: {details}"
+
+
+def _parse_idle_alert_run_id(source_id: str) -> int | None:
+    prefix = "stuck:idle:"
+    if not source_id.startswith(prefix):
+        return None
+    raw_value = source_id.removeprefix(prefix)
+    if not raw_value.isdigit():
+        return None
+    parsed = int(raw_value)
+    return parsed if parsed > 0 else None
 
 
 def _normalize_utc_datetime(value: datetime) -> datetime:

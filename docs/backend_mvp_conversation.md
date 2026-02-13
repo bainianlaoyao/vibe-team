@@ -70,6 +70,7 @@
 - `GET /api/v1/conversations/{id}`：获取对话详情含消息历史
 - `GET /api/v1/conversations/{id}/messages`：分页获取消息历史
 - `DELETE /api/v1/conversations/{id}`：归档对话
+- `POST /api/v1/tasks/{task_id}/run`：支持可选 `conversation_id`，将运行的 prompt 与结果摘要镜像写入该会话消息流（用于 Chat 历史可见）；若同一 task 已有活跃 run（`queued/running/retry_scheduled`）且 `idempotency_key` 不同，返回 `409 TASK_RUN_ALREADY_ACTIVE`
 
 ### 4.2 实时对话（WebSocket）
 - `WS /ws/conversations/{id}`：建立 WebSocket 连接
@@ -135,7 +136,7 @@
 
 | 模块 | 关系 |
 |------|------|
-| `task_runs` | 对话独立于 run，但可引用 run 上下文；对话中 Agent 执行不创建 `task_run` |
+| `task_runs` | 对话独立于 run，但可引用 run 上下文；`task.run` 可选绑定 `conversation_id` 将运行摘要写入 `messages`，以便 Chat 统一查看 |
 | `inbox_items` | `request_input` 可触发创建对话而非仅等待表单提交 |
 | `events` | 新增 `conversation.started`、`conversation.message.created`、`conversation.ended` 事件 |
 | `SecureFileGateway` | 对话中 Agent 调用文件工具时复用安全边界 |
