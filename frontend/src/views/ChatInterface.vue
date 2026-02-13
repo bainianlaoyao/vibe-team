@@ -10,8 +10,13 @@ const connectionLabel = computed(() =>
   store.socketState === 'connected' ? 'Connected' : `WS ${store.socketState}`,
 );
 const statusLabel = computed(() => `Runtime: ${store.runtimeState}`);
+const currentAgentLabel = computed(() =>
+  store.selectedAgent === null ? 'No agent' : `${store.selectedAgent.name} (#${store.selectedAgent.id})`,
+);
 const currentConversationLabel = computed(() =>
-  store.currentConversationId === null ? 'No conversation' : `Conversation #${store.currentConversationId}`,
+  store.currentConversation === null
+    ? 'No conversation'
+    : `${store.currentConversation.title} (#${store.currentConversation.id})`,
 );
 
 function scrollToBottom() {
@@ -46,6 +51,22 @@ function handleInputSubmit(payload: { questionId: string; answer: string }) {
   store.submitInputResponse(payload.questionId, payload.answer);
 }
 
+function handleAgentChange(event: Event) {
+  const value = Number((event.target as HTMLSelectElement).value);
+  if (!Number.isFinite(value) || value <= 0) return;
+  void store.selectAgent(value);
+}
+
+function handleConversationChange(event: Event) {
+  const value = Number((event.target as HTMLSelectElement).value);
+  if (!Number.isFinite(value) || value <= 0) return;
+  void store.selectConversation(value);
+}
+
+function handleCreateConversation() {
+  void store.createConversationForSelectedAgent();
+}
+
 onMounted(() => {
   void store.bootstrapConversation();
   scrollToBottom();
@@ -60,11 +81,54 @@ onUnmounted(() => {
   <div class="flex flex-col h-full bg-bg-secondary text-text-primary font-sans">
     <!-- Header -->
     <header class="flex-none px-6 py-4 border-b border-border bg-bg-primary/50 backdrop-blur">
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <div class="flex items-center gap-3">
-          <div class="h-2.5 w-2.5 rounded-full bg-emerald-500"></div>
-          <span class="font-mono text-sm font-bold text-text-secondary">Conversation v2</span>
-          <span class="text-xs text-text-tertiary">{{ currentConversationLabel }}</span>
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div class="flex flex-col gap-2">
+          <div class="flex items-center gap-3">
+            <div class="h-2.5 w-2.5 rounded-full bg-emerald-500"></div>
+            <span class="font-mono text-sm font-bold text-text-secondary">Conversation v2</span>
+            <span class="text-xs text-text-tertiary">{{ currentAgentLabel }}</span>
+            <span class="text-xs text-text-tertiary">{{ currentConversationLabel }}</span>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <select
+              :value="store.selectedAgentId ?? ''"
+              class="rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary"
+              @change="handleAgentChange"
+            >
+              <option
+                v-for="agent in store.agents"
+                :key="agent.id"
+                :value="agent.id"
+              >
+                {{ agent.name }}
+              </option>
+            </select>
+            <select
+              :value="store.currentConversationId ?? ''"
+              class="min-w-52 rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary disabled:cursor-not-allowed disabled:opacity-60"
+              :disabled="store.conversations.length === 0"
+              @change="handleConversationChange"
+            >
+              <option v-if="store.conversations.length === 0" value="" disabled>
+                No conversations
+              </option>
+              <option
+                v-for="conversation in store.conversations"
+                :key="conversation.id"
+                :value="conversation.id"
+              >
+                #{{ conversation.id }} {{ conversation.title }}
+              </option>
+            </select>
+            <button
+              type="button"
+              class="rounded-md border border-border px-2 py-1 text-xs text-text-secondary disabled:cursor-not-allowed disabled:opacity-50"
+              :disabled="store.selectedAgentId === null"
+              @click="handleCreateConversation"
+            >
+              New Conversation
+            </button>
+          </div>
         </div>
         <div class="flex items-center gap-2">
           <span class="text-xs text-text-tertiary">{{ connectionLabel }}</span>
@@ -90,7 +154,8 @@ onUnmounted(() => {
 
         <div v-if="store.messages.length === 0" class="text-center py-20 text-text-tertiary">
           <p class="text-2xl font-bold mb-2 text-text-primary">Workspace Chat</p>
-          <p>Send a message to start streaming.</p>
+          <p v-if="store.currentConversationId === null">Select an agent and a conversation to start.</p>
+          <p v-else>Send a message to start streaming.</p>
         </div>
 
         <MessageItem
@@ -106,7 +171,11 @@ onUnmounted(() => {
 
     <!-- Input Area -->
     <footer class="flex-none p-4 md:p-6 bg-bg-secondary border-t border-border/50">
-      <ChatInput :is-loading="store.isLoading" @submit="handleSubmit" />
+      <ChatInput
+        :is-loading="store.isLoading"
+        :disabled="store.currentConversationId === null"
+        @submit="handleSubmit"
+      />
     </footer>
   </div>
 </template>

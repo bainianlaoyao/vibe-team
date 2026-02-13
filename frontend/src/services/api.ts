@@ -306,9 +306,9 @@ export const api = {
     });
   },
 
-  listConversations(projectId = DEFAULT_PROJECT_ID): Promise<ConversationSummary[]> {
+  listConversations(projectId = DEFAULT_PROJECT_ID, agentId?: number): Promise<ConversationSummary[]> {
     return request<BackendConversationList>(
-      `/conversations${buildQuery({ project_id: projectId, page_size: 50 })}`,
+      `/conversations${buildQuery({ project_id: projectId, page_size: 50, agent_id: agentId })}`,
     ).then(payload =>
       payload.items.map(item => ({
         id: item.id,

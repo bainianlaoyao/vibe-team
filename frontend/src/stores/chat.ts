@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { ApiRequestError, api } from '@/services/api';
+import type { ConversationSummary } from '@/types';
 import type {
   ChatMessage,
   ChatSocketState,
@@ -31,6 +32,12 @@ type OutboundMessage =
 const HEARTBEAT_MS = 30_000;
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_MAX_MS = 12_000;
+
+interface ChatAgentOption {
+  id: number;
+  name: string;
+  status: string;
+}
 
 function parseRecord(value: unknown): Record<string, unknown> {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -88,6 +95,9 @@ function buildWsBaseUrl(): string {
 }
 
 export const useChatStore = defineStore('chat', () => {
+  const agents = ref<ChatAgentOption[]>([]);
+  const selectedAgentId = ref<number | null>(null);
+  const conversations = ref<ConversationSummary[]>([]);
   const messages = ref<ChatMessage[]>([]);
   const isLoading = ref(false);
   const error = ref<string | null>(null);
@@ -97,6 +107,12 @@ export const useChatStore = defineStore('chat', () => {
   const lastMessageSequence = ref(0);
 
   const canInterrupt = computed(() => runtimeState.value === 'streaming');
+  const selectedAgent = computed(() =>
+    agents.value.find(agent => agent.id === selectedAgentId.value) ?? null,
+  );
+  const currentConversation = computed(() =>
+    conversations.value.find(item => item.id === currentConversationId.value) ?? null,
+  );
 
   const pendingInputRequests = computed(() =>
     messages.value
@@ -121,8 +137,22 @@ export const useChatStore = defineStore('chat', () => {
     messages.value.sort((a, b) => a.timestamp - b.timestamp);
   }
 
+  function sortConversationsByUpdatedAt(): void {
+    conversations.value.sort((a, b) => parseTimestampMs(b.updatedAt) - parseTimestampMs(a.updatedAt));
+  }
+
   function newTempId(prefix: string): string {
     return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  function resetConversationState(): void {
+    messages.value = [];
+    seenMessageSequences.clear();
+    outboundQueue.length = 0;
+    pendingUserOptimisticQueue.length = 0;
+    pendingInputOptimisticByQuestion.clear();
+    lastMessageSequence.value = 0;
+    setRuntimeState('active');
   }
 
   function ensureMessageByTurn(role: Role, turnId: number, timestampMs: number): ChatMessage {
@@ -293,6 +323,14 @@ export const useChatStore = defineStore('chat', () => {
     socket = null;
   }
 
+  function disconnectActiveConversation(): void {
+    clearSocketTimers();
+    closeSocketSilently();
+    currentConversationId.value = null;
+    socketState.value = 'idle';
+    resetConversationState();
+  }
+
   function buildSocketUrl(conversationId: number): string {
     const params = new URLSearchParams();
     params.set('protocol', 'v2');
@@ -376,11 +414,7 @@ export const useChatStore = defineStore('chat', () => {
       clientId = `web-${conversationId}-${Date.now().toString(36)}`;
     }
     if (resetHistory) {
-      messages.value = [];
-      seenMessageSequences.clear();
-      pendingUserOptimisticQueue.length = 0;
-      pendingInputOptimisticByQuestion.clear();
-      lastMessageSequence.value = 0;
+      resetConversationState();
     }
 
     currentConversationId.value = conversationId;
@@ -749,24 +783,59 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  function newConversationTitle(): string {
+    return `Chat ${new Date().toLocaleTimeString()}`;
+  }
+
+  async function refreshConversationsForAgent(agentId: number, projectId: number): Promise<void> {
+    conversations.value = await api.listConversations(projectId, agentId);
+    sortConversationsByUpdatedAt();
+  }
+
   async function bootstrapConversation(): Promise<void> {
     error.value = null;
     try {
       const projectId = api.getProjectId();
-      const existing = await api.listConversations(projectId);
-      let conversationId = existing[0]?.id ?? null;
+      const agentRows = await api.listAgents(projectId);
+      agents.value = agentRows.map(row => ({
+        id: row.id,
+        name: row.name,
+        status: row.status,
+      }));
+
+      if (agents.value.length === 0) {
+        throw new Error('No available agent to start conversation.');
+      }
+
+      if (
+        selectedAgentId.value === null ||
+        !agents.value.some(agent => agent.id === selectedAgentId.value)
+      ) {
+        selectedAgentId.value = agents.value[0]?.id ?? null;
+      }
+
+      const activeAgentId = selectedAgentId.value;
+      if (activeAgentId === null) {
+        throw new Error('No available agent to start conversation.');
+      }
+
+      await refreshConversationsForAgent(activeAgentId, projectId);
+
+      let conversationId = currentConversationId.value;
+      if (conversationId !== null && !conversations.value.some(item => item.id === conversationId)) {
+        conversationId = null;
+      }
+      if (conversationId === null) {
+        conversationId = conversations.value[0]?.id ?? null;
+      }
 
       if (conversationId === null) {
-        const agents = await api.listAgents(projectId);
-        const firstAgent = agents[0];
-        if (!firstAgent) {
-          throw new Error('No available agent to start conversation.');
-        }
         const created = await api.createConversation({
           project_id: projectId,
-          agent_id: firstAgent.id,
-          title: `Chat ${new Date().toLocaleTimeString()}`,
+          agent_id: activeAgentId,
+          title: newConversationTitle(),
         });
+        conversations.value = [created];
         conversationId = created.id;
       }
 
@@ -779,9 +848,85 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  async function selectAgent(agentId: number): Promise<void> {
+    if (!agents.value.some(agent => agent.id === agentId)) {
+      error.value = 'Selected agent does not exist.';
+      return;
+    }
+    if (
+      selectedAgentId.value === agentId &&
+      conversations.value.length > 0 &&
+      currentConversationId.value !== null
+    ) {
+      return;
+    }
+
+    error.value = null;
+    selectedAgentId.value = agentId;
+    disconnectActiveConversation();
+
+    try {
+      const projectId = api.getProjectId();
+      await refreshConversationsForAgent(agentId, projectId);
+      const nextConversationId = conversations.value[0]?.id ?? null;
+      if (nextConversationId !== null) {
+        connect(nextConversationId, true);
+      }
+    } catch (cause) {
+      const apiError = cause instanceof ApiRequestError ? cause : null;
+      error.value = apiError
+        ? `${apiError.code}: ${apiError.message}`
+        : 'Failed to switch agent conversations.';
+    }
+  }
+
+  async function selectConversation(conversationId: number): Promise<void> {
+    const target = conversations.value.find(item => item.id === conversationId);
+    if (!target) {
+      error.value = 'Selected conversation does not exist for this agent.';
+      return;
+    }
+    if (currentConversationId.value === conversationId) {
+      return;
+    }
+
+    error.value = null;
+    selectedAgentId.value = target.agentId;
+    connect(conversationId, true);
+  }
+
+  async function createConversationForSelectedAgent(): Promise<void> {
+    if (selectedAgentId.value === null) {
+      error.value = 'Select an agent before creating a conversation.';
+      return;
+    }
+
+    error.value = null;
+    try {
+      const projectId = api.getProjectId();
+      const created = await api.createConversation({
+        project_id: projectId,
+        agent_id: selectedAgentId.value,
+        title: newConversationTitle(),
+      });
+      conversations.value = [created, ...conversations.value.filter(item => item.id !== created.id)];
+      sortConversationsByUpdatedAt();
+      connect(created.id, true);
+    } catch (cause) {
+      const apiError = cause instanceof ApiRequestError ? cause : null;
+      error.value = apiError
+        ? `${apiError.code}: ${apiError.message}`
+        : 'Failed to create conversation.';
+    }
+  }
+
   function sendMessage(content: string): void {
     const trimmed = content.trim();
     if (!trimmed) return;
+    if (currentConversationId.value === null) {
+      error.value = 'Please select or create a conversation first.';
+      return;
+    }
     error.value = null;
     const optimistic = addStandaloneMessage('user', trimmed, Date.now());
     pendingUserOptimisticQueue.push(optimistic.id);
@@ -828,7 +973,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function connectByConversationId(conversationId: number): void {
-    connect(conversationId, true);
+    void selectConversation(conversationId);
   }
 
   function resetConnection(): void {
@@ -839,6 +984,11 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   return {
+    agents,
+    selectedAgentId,
+    selectedAgent,
+    conversations,
+    currentConversation,
     messages,
     isLoading,
     error,
@@ -849,6 +999,9 @@ export const useChatStore = defineStore('chat', () => {
     pendingInputRequests,
     lastMessageSequence,
     bootstrapConversation,
+    selectAgent,
+    selectConversation,
+    createConversationForSelectedAgent,
     connectByConversationId,
     sendMessage,
     submitInputResponse,
