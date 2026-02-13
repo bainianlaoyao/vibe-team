@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
 import { PhArrowSquareOut, PhPlus, PhX } from '@phosphor-icons/vue';
 import Avatar from '../components/Avatar.vue';
 import TaskCard from '../components/TaskCard.vue';
@@ -9,11 +8,11 @@ import { useTasksStore } from '../stores/tasks';
 import { ApiRequestError, api } from '../services/api';
 import type { Task, TaskStatus } from '../types';
 
-const router = useRouter();
 const tasksStore = useTasksStore();
 const agentsStore = useAgentsStore();
 const selectedTask = ref<Task | null>(null);
 const launchTaskError = ref<string | null>(null);
+const launchTaskInfo = ref<string | null>(null);
 const launchingTaskId = ref<string | null>(null);
 
 const columns: {
@@ -58,8 +57,23 @@ const buildConversationTitle = (task: Task): string => {
   return `${taskPrefix}: ${task.title}`;
 };
 
+const buildRunPrompt = (task: Task): string => {
+  const summary = task.description.trim();
+  if (!summary) {
+    return `请执行任务：${task.title}`;
+  }
+  return `请执行任务：${task.title}\n\n任务说明：${summary}`;
+};
+
+const buildLaunchTraceId = (taskId: number, conversationId: number): string =>
+  `launch-${taskId}-${conversationId}-${Date.now()}`;
+
+const buildLaunchIdempotencyKey = (taskId: number, conversationId: number): string =>
+  `launch-${taskId}-${conversationId}-${Date.now()}`;
+
 const launchTaskConversation = async (task: Task) => {
   launchTaskError.value = null;
+  launchTaskInfo.value = null;
   if (!task.apiId) {
     launchTaskError.value = 'Missing apiId for selected task.';
     return;
@@ -81,13 +95,25 @@ const launchTaskConversation = async (task: Task) => {
         task_id: task.apiId,
         title: buildConversationTitle(task),
       }));
-    await router.push({
-      path: '/chat',
-      query: {
-        agent: String(assigneeApiId),
-        conversation: String(target.id),
-      },
-    });
+
+    void api
+      .runTask(task.apiId, {
+        prompt: buildRunPrompt(task),
+        session_id: `conversation-${target.id}`,
+        trace_id: buildLaunchTraceId(task.apiId, target.id),
+        idempotency_key: buildLaunchIdempotencyKey(task.apiId, target.id),
+        actor: 'frontend.launch',
+      })
+      .then(() => tasksStore.fetchTasks())
+      .catch(cause => {
+        const apiError = cause instanceof ApiRequestError ? cause : null;
+        launchTaskError.value = apiError
+          ? `${apiError.code}: ${apiError.message}`
+          : 'Failed to start task run after launching.';
+      });
+
+    launchTaskInfo.value = `Task #${task.apiId} launched. Open it from Chat conversation list when needed.`;
+    void tasksStore.fetchTasks();
   } catch (cause) {
     const apiError = cause instanceof ApiRequestError ? cause : null;
     launchTaskError.value = apiError
@@ -112,6 +138,7 @@ onMounted(async () => {
       <div class="ml-auto text-text-tertiary">{{ totalTasks }} tasks</div>
     </div>
     <div v-if="launchTaskError" class="px-4 sm:px-6 lg:px-8 pt-2 text-sm text-error">{{ launchTaskError }}</div>
+    <div v-if="launchTaskInfo" class="px-4 sm:px-6 lg:px-8 pt-2 text-sm text-success">{{ launchTaskInfo }}</div>
 
     <div v-if="tasksStore.loading" class="p-6 text-sm text-text-tertiary">Loading tasks...</div>
     <div v-else-if="tasksStore.error" class="p-6 text-sm text-error">{{ tasksStore.error }}</div>
@@ -180,7 +207,7 @@ onMounted(async () => {
               @click="launchTaskConversation(selectedTask)"
             >
               <PhArrowSquareOut :size="14" />
-              <span>{{ launchingTaskId === selectedTask.id ? 'Launching...' : 'Launch Chat' }}</span>
+              <span>{{ launchingTaskId === selectedTask.id ? 'Launching...' : 'Launch Task' }}</span>
             </button>
             <button
               class="p-2 text-text-tertiary hover:text-text-primary hover:bg-bg-tertiary rounded-lg transition-colors cursor-pointer"

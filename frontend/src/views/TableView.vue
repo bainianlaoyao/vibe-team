@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { PhArrowSquareOut, PhCaretDown, PhCaretRight, PhGitDiff } from '@phosphor-icons/vue';
-import { useRouter } from 'vue-router';
 import Avatar from '../components/Avatar.vue';
 import TaskCreateModal from '../components/TaskCreateModal.vue';
 import { useAgentsStore } from '../stores/agents';
@@ -9,13 +8,13 @@ import { useTasksStore } from '../stores/tasks';
 import { ApiRequestError, api } from '../services/api';
 import type { Agent, RiskFlag, Task, TaskStatus } from '../types';
 
-const router = useRouter();
 const agentsStore = useAgentsStore();
 const tasksStore = useTasksStore();
 const createModalOpen = ref<boolean>(false);
 const creatingTask = ref<boolean>(false);
 const createTaskError = ref<string | null>(null);
 const launchTaskError = ref<string | null>(null);
+const launchTaskInfo = ref<string | null>(null);
 const launchingTaskId = ref<string | null>(null);
 
 const statusMeta: Record<TaskStatus, { label: string; dot: string; text: string }> = {
@@ -104,8 +103,23 @@ const buildConversationTitle = (task: Task): string => {
   return `${taskPrefix}: ${task.title}`;
 };
 
+const buildRunPrompt = (task: Task): string => {
+  const summary = task.description.trim();
+  if (!summary) {
+    return `请执行任务：${task.title}`;
+  }
+  return `请执行任务：${task.title}\n\n任务说明：${summary}`;
+};
+
+const buildLaunchTraceId = (taskId: number, conversationId: number): string =>
+  `launch-${taskId}-${conversationId}-${Date.now()}`;
+
+const buildLaunchIdempotencyKey = (taskId: number, conversationId: number): string =>
+  `launch-${taskId}-${conversationId}-${Date.now()}`;
+
 const launchTaskConversation = async (task: Task) => {
   launchTaskError.value = null;
+  launchTaskInfo.value = null;
   if (!task.apiId) {
     launchTaskError.value = 'Missing apiId for selected task.';
     return;
@@ -129,13 +143,24 @@ const launchTaskConversation = async (task: Task) => {
         title: buildConversationTitle(task),
       }));
 
-    await router.push({
-      path: '/chat',
-      query: {
-        agent: String(assigneeApiId),
-        conversation: String(target.id),
-      },
-    });
+    void api
+      .runTask(task.apiId, {
+        prompt: buildRunPrompt(task),
+        session_id: `conversation-${target.id}`,
+        trace_id: buildLaunchTraceId(task.apiId, target.id),
+        idempotency_key: buildLaunchIdempotencyKey(task.apiId, target.id),
+        actor: 'frontend.launch',
+      })
+      .then(() => tasksStore.fetchTasks())
+      .catch(cause => {
+        const apiError = cause instanceof ApiRequestError ? cause : null;
+        launchTaskError.value = apiError
+          ? `${apiError.code}: ${apiError.message}`
+          : 'Failed to start task run after launching.';
+      });
+
+    launchTaskInfo.value = `Task #${task.apiId} launched. Open it from Chat conversation list when needed.`;
+    void tasksStore.fetchTasks();
   } catch (cause) {
     const apiError = cause instanceof ApiRequestError ? cause : null;
     launchTaskError.value = apiError
@@ -190,6 +215,7 @@ onMounted(async () => {
     <div v-else-if="tasksStore.error" class="text-sm text-error">{{ tasksStore.error }}</div>
     <div v-else class="space-y-6">
       <div v-if="launchTaskError" class="text-sm text-error">{{ launchTaskError }}</div>
+      <div v-if="launchTaskInfo" class="text-sm text-success">{{ launchTaskInfo }}</div>
       <div v-for="section in agentSections" :key="section.agentId" class="mb-6">
         <div class="flex items-center justify-between bg-bg-elevated px-4 py-1.5 rounded-t-lg border border-border">
           <button class="flex items-center gap-3 flex-1 text-left" @click="toggleAgent(section.agentId)">
@@ -267,7 +293,7 @@ onMounted(async () => {
                     </button>
                     <button
                       class="h-7 w-7 border border-border/70 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-tertiary flex items-center justify-center"
-                      aria-label="Launch task conversation"
+                      aria-label="Launch task"
                       :disabled="launchingTaskId === task.id || !task.assignedTo"
                       @click="launchTaskConversation(task)"
                     >
