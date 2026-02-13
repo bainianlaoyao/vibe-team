@@ -63,6 +63,24 @@ export interface BackendTask {
   updated_at: string;
 }
 
+export interface BackendTaskRun {
+  id: number;
+  task_id: number;
+  agent_id: number | null;
+  run_status: string;
+  attempt: number;
+  idempotency_key: string;
+  started_at: string;
+  ended_at: string | null;
+  next_retry_at: string | null;
+  error_code: string | null;
+  error_message: string | null;
+  token_in: number;
+  token_out: number;
+  cost_usd: string;
+  version: number;
+}
+
 export interface BackendTaskStats {
   total: number;
   todo: number;
@@ -277,6 +295,27 @@ export const api = {
     return request<BackendTask>(`/tasks/${taskId}/${command}`, {
       method: 'POST',
       body: {},
+    });
+  },
+
+  runTask(
+    taskId: number,
+    payload: {
+      prompt: string;
+      provider?: string;
+      model?: string;
+      system_prompt?: string;
+      session_id?: string;
+      idempotency_key?: string;
+      max_turns?: number;
+      timeout_seconds?: number;
+      trace_id?: string;
+      actor?: string;
+    },
+  ): Promise<BackendTaskRun> {
+    return request<BackendTaskRun>(`/tasks/${taskId}/run`, {
+      method: 'POST',
+      body: payload,
     });
   },
 
