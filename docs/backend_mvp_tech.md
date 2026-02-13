@@ -2,9 +2,10 @@
 
 本文只维护“当前有效的 MVP 技术规范”，不再承载阶段实施流水。
 
-- 产品与可行性来源：`docs/product_design_decisions.md`、`docs/technical_feasibility.md`
-- 实施历史（Phase Log）：`docs/backend_mvp_impl_history.md`
-- 对话专项设计（P7）：`docs/backend_mvp_conversation.md`
+- 产品与可行性来源：[`product_design_decisions.md`](./product_design_decisions.md)、[`technical_feasibility.md`](./technical_feasibility.md)
+- 实施历史（Phase Log）：[`backend_mvp_impl_history.md`](./backend_mvp_impl_history.md)
+- 对话专项设计（P7）：[`backend_mvp_conversation.md`](./backend_mvp_conversation.md)
+- docs 全量目录：[`README.md`](./README.md)
 
 ## 1. 目标与边界
 
@@ -319,8 +320,40 @@ Frontend (Vue)  <->  FastAPI (REST/WebSocket)
 2. 根目录 `tasks.md` 由导出器定期或事件触发刷新。
 3. 导出格式与本设计的 Phase/并行任务视图一致，便于人类快速审阅。
 
-## 13. 相关文档
+## 13. docs 全量索引（入口）
 
-1. 实施历史：`docs/backend_mvp_impl_history.md`
-2. 对话专项：`docs/backend_mvp_conversation.md`
-3. 部署与运维：`docs/deployment.md`、`docs/operations.md`
+本节用于让 Agent 以 `backend_mvp_tech.md` 为入口，索引 `docs/` 下全部文件。
+
+1. 总目录：[`README.md`](./README.md)
+
+2. 核心设计文档
+- [`backend_mvp_tech.md`](./backend_mvp_tech.md)
+- [`backend_mvp_impl_history.md`](./backend_mvp_impl_history.md)
+- [`backend_mvp_conversation.md`](./backend_mvp_conversation.md)
+- [`product_design_decisions.md`](./product_design_decisions.md)
+- [`technical_feasibility.md`](./technical_feasibility.md)
+- [`p3_c_runtime_baseline.md`](./p3_c_runtime_baseline.md)
+
+3. 交付与运维文档
+- [`deployment.md`](./deployment.md)
+- [`operations.md`](./operations.md)
+- [`integration-issues.md`](./integration-issues.md)
+- [`e2e-report.md`](./e2e-report.md)
+- [`runbook/phase5_recovery_sop.md`](./runbook/phase5_recovery_sop.md)
+
+4. Agent 文档
+- [`agents/README.md`](./agents/README.md)
+- [`agents/backend_agent.md`](./agents/backend_agent.md)
+- [`agents/frontend_agent.md`](./agents/frontend_agent.md)
+
+5. 报告文档（Markdown）
+- [`reports/phase6/api_probe_report.md`](./reports/phase6/api_probe_report.md)
+- [`reports/phase6/failure_recovery_report.md`](./reports/phase6/failure_recovery_report.md)
+- [`reports/phase6/panel_integration_notes.md`](./reports/phase6/panel_integration_notes.md)
+- [`reports/phase7/conversation_acceptance_notes.md`](./reports/phase7/conversation_acceptance_notes.md)
+- [`reports/phase10/chat_frontend_p10d.md`](./reports/phase10/chat_frontend_p10d.md)
+- [`reports/phase10/conversation_protocol_v2.md`](./reports/phase10/conversation_protocol_v2.md)
+
+6. 报告数据文件（JSON）
+- [`reports/phase6/api_probe_report.json`](./reports/phase6/api_probe_report.json)
+- [`reports/phase6/failure_recovery_report.json`](./reports/phase6/failure_recovery_report.json)
