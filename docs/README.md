@@ -10,8 +10,7 @@
 2. [backend_mvp_impl_history.md](./backend_mvp_impl_history.md)
 3. [backend_mvp_conversation.md](./backend_mvp_conversation.md)
 4. [product_design_decisions.md](./product_design_decisions.md)
-5. [technical_feasibility.md](./technical_feasibility.md)
-6. [p3_c_runtime_baseline.md](./p3_c_runtime_baseline.md)
+5. [p3_c_runtime_baseline.md](./p3_c_runtime_baseline.md)
 
 ## 2. 交付与运维
 

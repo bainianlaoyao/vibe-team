@@ -2,7 +2,7 @@
 
 本文只维护“当前有效的 MVP 技术规范”，不再承载阶段实施流水。
 
-- 产品与可行性来源：[`product_design_decisions.md`](./product_design_decisions.md)、[`technical_feasibility.md`](./technical_feasibility.md)
+- 产品来源：[`product_design_decisions.md`](./product_design_decisions.md)
 - 实施历史（Phase Log）：[`backend_mvp_impl_history.md`](./backend_mvp_impl_history.md)
 - 对话专项设计（P7）：[`backend_mvp_conversation.md`](./backend_mvp_conversation.md)
 - docs 全量目录：[`README.md`](./README.md)
@@ -331,7 +331,6 @@ Frontend (Vue)  <->  FastAPI (REST/WebSocket)
 - [`backend_mvp_impl_history.md`](./backend_mvp_impl_history.md)
 - [`backend_mvp_conversation.md`](./backend_mvp_conversation.md)
 - [`product_design_decisions.md`](./product_design_decisions.md)
-- [`technical_feasibility.md`](./technical_feasibility.md)
 - [`p3_c_runtime_baseline.md`](./p3_c_runtime_baseline.md)
 
 3. 交付与运维文档
