@@ -325,6 +325,7 @@ Frontend (Vue)  <->  FastAPI (REST/WebSocket)
 本节用于让 Agent 以 `backend_mvp_tech.md` 为入口，索引 `docs/` 下全部文件。
 
 1. 总目录：[`README.md`](./README.md)
+1.1 仓库根目录启动文档：[`../start_project.md`](../start_project.md)
 
 2. 核心设计文档
 - [`backend_mvp_tech.md`](./backend_mvp_tech.md)

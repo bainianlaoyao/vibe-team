@@ -537,7 +537,7 @@ def _create_claude_session_client(state: ConnectionState) -> ClaudeSessionClient
         system_prompt=state.system_prompt or None,
         max_turns=state.settings.claude_default_max_turns,
         permission_mode=resolve_claude_permission_mode(),
-        cwd=state.workspace_root,
+        cwd=state.settings.project_root or state.workspace_root,
         settings=str(auth.settings_path) if auth.settings_path else None,
         env=auth.env,
         cli_path=resolve_claude_cli_path(state.settings.claude_cli_path),

@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from pathlib import Path
 from typing import Any, cast
 
 from pytest import MonkeyPatch
 from sqlmodel import Session, select
 
+from app.core.config import Settings
 from app.db.enums import TaskRunStatus
 from app.db.models import Event
 from app.db.repositories import TaskRunRepository
-from app.llm import LLMErrorCode, LLMProviderError, LLMResponse, LLMUsage
+from app.llm import LLMErrorCode, LLMProviderError, LLMRequest, LLMResponse, LLMUsage
 from tests.shared import ApiTestContext
 
 
@@ -17,9 +19,11 @@ class SequenceLLMClient:
     def __init__(self, outcomes: list[LLMResponse | Exception]) -> None:
         self._outcomes = list(outcomes)
         self.invocation_count = 0
+        self.requests: list[LLMRequest] = []
 
-    async def generate(self, request: Any) -> LLMResponse:
+    async def generate(self, request: LLMRequest) -> LLMResponse:
         self.invocation_count += 1
+        self.requests.append(request)
         if not self._outcomes:
             raise AssertionError("No more fake LLM outcomes configured.")
         outcome = self._outcomes.pop(0)
@@ -593,6 +597,8 @@ def test_run_task_endpoint_executes_and_is_idempotent(
     assert first_payload["token_out"] == 20
     assert first_payload["cost_usd"] == "0.0065"
     assert fake_llm.invocation_count == 1
+    assert len(fake_llm.requests) == 1
+    assert fake_llm.requests[0].cwd == api_context.project_root
 
     duplicate_run_response = api_context.client.post(
         f"/api/v1/tasks/{task_id}/run",
@@ -662,6 +668,59 @@ def test_run_task_endpoint_executes_and_is_idempotent(
         "running",
         "succeeded",
     ]
+
+
+def test_run_task_endpoint_prefers_configured_project_root_for_cwd(
+    api_context: ApiTestContext,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    fake_llm = SequenceLLMClient([_success_llm_response(session_id="task-run-cwd-1")])
+    monkeypatch.setattr("app.api.tasks.create_llm_client", lambda **_: fake_llm)
+    configured_root = Path("E:/beebeebrain/play_ground")
+    monkeypatch.setattr(
+        "app.api.tasks.get_settings",
+        lambda: Settings(project_root=configured_root, database_url="sqlite:///./ignored.db"),
+    )
+
+    agent_response = api_context.client.post(
+        "/api/v1/agents",
+        json={
+            "project_id": api_context.project_id,
+            "name": "Cwd Agent",
+            "role": "executor",
+            "model_provider": "claude_code",
+            "model_name": "claude-sonnet-4-5",
+            "initial_persona_prompt": "Execute tasks.",
+            "enabled_tools_json": [],
+            "status": "active",
+        },
+    )
+    assert agent_response.status_code == 201
+    agent_id = agent_response.json()["id"]
+
+    task_response = api_context.client.post(
+        "/api/v1/tasks",
+        json={
+            "project_id": api_context.project_id,
+            "title": "Run With Configured Cwd",
+            "assignee_agent_id": agent_id,
+        },
+    )
+    assert task_response.status_code == 201
+    task_id = task_response.json()["id"]
+
+    run_response = api_context.client.post(
+        f"/api/v1/tasks/{task_id}/run",
+        json={
+            "prompt": "执行并确认 cwd",
+            "session_id": "task-run-cwd-1",
+            "idempotency_key": f"task-{task_id}-run-cwd-001",
+            "trace_id": "trace-task-run-cwd-1",
+        },
+    )
+    assert run_response.status_code == 200
+    assert len(fake_llm.requests) == 1
+    assert fake_llm.requests[0].cwd == configured_root
 
 
 def test_run_task_endpoint_creates_task_completed_inbox_item(

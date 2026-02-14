@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
+from pathlib import Path
 from typing import Annotated, Any, cast
 from uuid import uuid4
 
@@ -859,6 +860,7 @@ def _build_llm_request(
     provider: str,
     model: str,
     task_id: int,
+    cwd: Path | None = None,
 ) -> LLMRequest:
     session_id = _normalized_optional_text(payload.session_id) or f"task-{task_id}"
     return LLMRequest(
@@ -868,6 +870,7 @@ def _build_llm_request(
         session_id=session_id,
         system_prompt=payload.system_prompt,
         max_turns=payload.max_turns,
+        cwd=cwd,
         trace_id=payload.trace_id,
     )
 
@@ -1347,6 +1350,7 @@ def run_task(
     session: DbSession,
 ) -> TaskRunRead:
     task = _get_task_or_404(session, task_id)
+    project = _require_project(session, task.project_id)
     bind_log_context(trace_id=payload.trace_id, task_id=task_id)
     assignee = _resolve_task_assignee(task, session)
     conversation = _resolve_task_run_conversation(
@@ -1383,8 +1387,9 @@ def run_task(
             )
             return TaskRunRead.model_validate(active_run)
 
+    settings = get_settings()
     try:
-        llm_client = create_llm_client(provider=provider, settings=get_settings())
+        llm_client = create_llm_client(provider=provider, settings=settings)
     except LLMProviderError as exc:
         _raise_provider_error(exc)
 
@@ -1416,7 +1421,13 @@ def run_task(
             actor=payload.actor,
         )
 
-        llm_request = _build_llm_request(payload, provider=provider, model=model, task_id=task_id)
+        llm_request = _build_llm_request(
+            payload,
+            provider=provider,
+            model=model,
+            task_id=task_id,
+            cwd=settings.project_root or Path(project.root_path),
+        )
         run = asyncio.run(
             runtime_service.execute_run(
                 session=session,

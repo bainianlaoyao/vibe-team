@@ -3,6 +3,7 @@
 本文档是 `docs/` 目录总索引，按主题列出当前全部文件。
 
 1. 当前文件：[README.md](./README.md)
+2. 仓库根目录启动文档：[../start_project.md](../start_project.md)
 
 ## 1. 核心设计
 
